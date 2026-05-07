@@ -118,7 +118,7 @@ private struct IntFlagRow: View {
             FlagLabel(key: key, type: "int", currentValue: "\(value)")
             HStack {
                 TextField("value", value: $draft, format: .number)
-                    #if !os(tvOS)
+                    #if !os(tvOS) && !os(watchOS)
                     .textFieldStyle(.roundedBorder)
                     #endif
                     #if os(iOS) || os(visionOS)
@@ -148,7 +148,7 @@ private struct DoubleFlagRow: View {
             FlagLabel(key: key, type: "double", currentValue: String(format: "%g", value))
             HStack {
                 TextField("value", value: $draft, format: .number)
-                    #if !os(tvOS)
+                    #if !os(tvOS) && !os(watchOS)
                     .textFieldStyle(.roundedBorder)
                     #endif
                     #if os(iOS) || os(visionOS)
@@ -178,7 +178,7 @@ private struct StringFlagRow: View {
             FlagLabel(key: key, type: "string", currentValue: "\"\(value)\"")
             HStack {
                 TextField("value", text: $draft)
-                    #if !os(tvOS)
+                    #if !os(tvOS) && !os(watchOS)
                     .textFieldStyle(.roundedBorder)
                     #endif
                     .onAppear { if !loaded { draft = value; loaded = true } }
