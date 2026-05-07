@@ -53,10 +53,12 @@ public struct HoistDebugView: View {
                 }
             }
             .navigationTitle("Hoist Flags")
-            #if !os(macOS)
+            #if os(iOS) || os(visionOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            #if !os(tvOS)
             .searchable(text: $search, prompt: "Search flags")
+            #endif
         }
     }
 
@@ -117,7 +119,7 @@ private struct IntFlagRow: View {
             HStack {
                 TextField("value", value: $draft, format: .number)
                     .textFieldStyle(.roundedBorder)
-                    #if !os(macOS)
+                    #if os(iOS) || os(visionOS)
                     .keyboardType(.numberPad)
                     #endif
                     .onAppear { if !loaded { draft = value; loaded = true } }
@@ -143,7 +145,7 @@ private struct DoubleFlagRow: View {
             HStack {
                 TextField("value", value: $draft, format: .number)
                     .textFieldStyle(.roundedBorder)
-                    #if !os(macOS)
+                    #if os(iOS) || os(visionOS)
                     .keyboardType(.decimalPad)
                     #endif
                     .onAppear { if !loaded { draft = value; loaded = true } }
