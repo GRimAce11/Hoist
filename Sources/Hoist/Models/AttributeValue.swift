@@ -1,6 +1,14 @@
 import Foundation
 
 /// A primitive value carried by user attributes, rule operands, and resolved flag values.
+///
+/// `AttributeValue` is the lingua franca that flows through every layer of
+/// Hoist: it's what you put in a ``UserContext``, what `Hoist.override(...)`
+/// stores, and what the evaluator returns after walking a rule list.
+///
+/// Conformances to `ExpressibleBy{Boolean,Integer,Float,String}Literal` let
+/// you write the common cases as plain literals — `Hoist.override("k", with: 42)`
+/// is equivalent to `Hoist.override("k", with: .int(42))`.
 public enum AttributeValue: Sendable, Hashable {
     case bool(Bool)
     case int(Int)
@@ -57,9 +65,13 @@ extension AttributeValue: ExpressibleByStringLiteral {
 // MARK: - Typed accessors
 
 extension AttributeValue {
+    /// The wrapped boolean, or `nil` if this value isn't a boolean.
     public var asBool: Bool? {
         if case .bool(let v) = self { return v } else { return nil }
     }
+
+    /// The wrapped integer, or `nil` if this value isn't numeric. A `.double`
+    /// is converted only when it's exactly representable as an `Int`.
     public var asInt: Int? {
         switch self {
         case .int(let v):    return v
@@ -67,6 +79,9 @@ extension AttributeValue {
         default:             return nil
         }
     }
+
+    /// The wrapped floating-point value, or `nil` if this value isn't numeric.
+    /// `.int` values are widened to `Double`.
     public var asDouble: Double? {
         switch self {
         case .double(let v): return v
@@ -74,6 +89,8 @@ extension AttributeValue {
         default:             return nil
         }
     }
+
+    /// The wrapped string, or `nil` if this value isn't a string.
     public var asString: String? {
         if case .string(let v) = self { return v } else { return nil }
     }

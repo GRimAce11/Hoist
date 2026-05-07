@@ -1,31 +1,64 @@
-# Hoist
+<h1 align="center">Hoist</h1>
 
-A lightweight, type-safe feature flag library for Swift.
+<p align="center">
+  <strong>Feature flags for Swift apps — pure Swift, zero dependencies, self-hostable.</strong><br/>
+  Roll out features gradually, A/B test, target users, and ship kill switches — without an App Store release.
+</p>
 
-> Roll out features gradually, A/B test, target users — without shipping a new build.
+<p align="center">
+  <a href="https://github.com/GRimAce11/Hoist/actions/workflows/ci.yml"><img src="https://github.com/GRimAce11/Hoist/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://swiftpackageindex.com/GRimAce11/Hoist"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FGRimAce11%2FHoist%2Fbadge%3Ftype%3Dswift-versions" alt="Swift versions"></a>
+  <a href="https://swiftpackageindex.com/GRimAce11/Hoist"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FGRimAce11%2FHoist%2Fbadge%3Ftype%3Dplatforms" alt="Platforms"></a>
+  <a href="https://github.com/GRimAce11/Hoist/blob/main/LICENSE"><img src="https://img.shields.io/github/license/GRimAce11/Hoist" alt="License"></a>
+  <a href="https://swiftpackageindex.com/GRimAce11/Hoist/documentation/hoist"><img src="https://img.shields.io/badge/docs-DocC-blue" alt="Documentation"></a>
+</p>
 
-## Status
+---
 
-Pre-release — under active development. APIs may change.
+## What is Hoist?
+
+Hoist is an open-source, MIT-licensed feature-flag library for iOS, macOS, tvOS, watchOS, and visionOS. It gives you the everyday primitives you'd reach for in LaunchDarkly or Firebase Remote Config — gradual rollouts, A/B splits, targeted rules, runtime overrides, a debug overlay — in roughly 1,100 lines of pure Swift, with no third-party dependencies and a single SwiftUI property wrapper as the day-to-day API.
+
+```swift
+@FeatureFlag("new_checkout") var useNewCheckout
+
+if useNewCheckout {
+    NewCheckoutView()
+} else {
+    LegacyCheckoutView()
+}
+```
 
 ## Why Hoist?
 
-- **Pure Swift** — no Objective-C, no third-party dependencies, Swift 6 strict concurrency
-- **Local or remote** — bundle a JSON file, fetch from your server, or both
-- **Deterministic rollouts** — the same user always gets the same variant for a flag
-- **SwiftUI native** — `@FeatureFlag` property wrapper with Observation-based updates
-- **Privacy-first** — no third-party tracking, nothing leaves the device by default
+| | Hoist | LaunchDarkly | Statsig | ConfigCat | Firebase&nbsp;Remote&nbsp;Config |
+|---|:-:|:-:|:-:|:-:|:-:|
+| Pure Swift | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Zero third-party deps | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Open source (MIT) | ✅ | ❌ | ❌ | ✅ | ❌ |
+| Self-hostable | ✅ | ❌ | ❌ | ⚠️ | ❌ |
+| Swift 6 strict concurrency | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `@Observable` / native SwiftUI | ✅ | ⚠️ | ❌ | ❌ | ❌ |
+| Built-in debug overlay | ✅ | ✅ | ✅ | ⚠️ | ❌ |
+| Runtime overrides | ✅ | ✅ | ✅ | ⚠️ | ⚠️ |
+| Free tier | ∞ | seats-based | yes | yes | yes |
+| Vendor lock-in | none | high | high | medium | high |
+
+**Pick Hoist when** you want a small, auditable, self-hostable flag layer that integrates naturally with modern SwiftUI and doesn't require an account, an SDK initialiser, or a $200K/yr contract.
+
+**Pick something else when** you need a managed dashboard, automated experiment statistics, multi-team approvals, audit logs, or sub-second push updates from a managed cloud — those are problems best solved by paid platforms.
 
 ## Requirements
 
-- Swift 6.0+
-- iOS 17 / macOS 14 / tvOS 17 / watchOS 10 / visionOS 1
+| Swift | iOS | macOS | tvOS | watchOS | visionOS |
+|:-:|:-:|:-:|:-:|:-:|:-:|
+| 6.0+ | 17+ | 14+ | 17+ | 10+ | 1.0+ |
 
 ## Installation
 
 ### Swift Package Manager
 
-In `Package.swift`:
+Add Hoist to your `Package.swift`:
 
 ```swift
 dependencies: [
@@ -36,93 +69,12 @@ targets: [
 ]
 ```
 
-Or in Xcode: **File → Add Package Dependencies** and paste
+Or in Xcode: **File → Add Package Dependencies…** and paste
 `https://github.com/GRimAce11/Hoist`.
 
 ## Quick start
 
-```swift
-import Hoist
-
-// 1. Configure once at app launch
-Hoist.configure(
-    source: .bundled("flags.json"),
-    context: UserContext(
-        userID: currentUser.id,
-        attributes: [
-            "country": .string("US"),
-            "plan": .string("pro"),
-        ]
-    )
-)
-
-// 2. Read flag values anywhere
-if Hoist.bool("new_checkout") {
-    showNewCheckout()
-}
-
-let uploadLimit = Hoist.int("max_upload_mb")  // e.g. 100
-```
-
-### SwiftUI integration
-
-```swift
-struct CheckoutView: View {
-    @FeatureFlag("new_checkout") var useNewCheckout
-    @FeatureFlag("home_layout", default: "grid") var layout
-
-    var body: some View {
-        if useNewCheckout {
-            NewCheckoutView()
-        } else {
-            OldCheckoutView()
-        }
-    }
-}
-```
-
-### Runtime overrides
-
-Force a flag to a specific value at runtime — bypasses rule evaluation.
-Overrides are persisted to a dedicated `UserDefaults` suite, so they survive
-app launches.
-
-```swift
-Hoist.override("new_checkout", with: true)     // force ON
-Hoist.override("max_upload_mb", with: 500)
-Hoist.override("home_layout", with: "carousel")
-
-Hoist.clearOverride("new_checkout")            // back to rules
-Hoist.clearAllOverrides()
-```
-
-Resolution order: **override → rule → default**.
-
-### Debug overlay
-
-Drop in a SwiftUI debug screen that lists every flag with type-aware editors,
-search, and an orange badge on overridden values:
-
-```swift
-import Hoist
-
-struct RootView: View {
-    @State private var showFlags = false
-
-    var body: some View {
-        ContentView()
-            #if DEBUG
-            .onShakeGesture { showFlags = true }
-            .sheet(isPresented: $showFlags) { HoistDebugView() }
-            #endif
-    }
-}
-```
-
-The view auto-refreshes whenever a flag is overridden, the context changes,
-or `configure(...)` is called again.
-
-## Flag definition format
+### 1. Bundle a `flags.json` with your app
 
 ```json
 {
@@ -139,29 +91,267 @@ or `configure(...)` is called again.
       "type": "int",
       "default": 10,
       "rules": [
-        { "if": { "plan": "pro" }, "value": 100 }
+        { "if": { "plan": { "in": ["pro", "team"] } }, "value": 100 }
       ]
     }
   }
 }
 ```
 
-The evaluator walks rules top to bottom and returns the first match. If nothing matches, the `default` is returned.
+### 2. Configure once at launch
+
+```swift
+import SwiftUI
+import Hoist
+
+@main
+struct MyApp: App {
+    @State private var isReady = false
+
+    var body: some Scene {
+        WindowGroup {
+            Group {
+                if isReady { RootView() } else { LoadingView() }
+            }
+            .task {
+                do {
+                    try await Hoist.configure(
+                        source: .bundled(filename: "flags.json"),
+                        context: UserContext(
+                            userID: UserSession.current.id,
+                            attributes: [
+                                "country": .string(Locale.current.region?.identifier ?? "??"),
+                                "plan":    .string(UserSession.current.plan),
+                            ]
+                        )
+                    )
+                } catch {
+                    // Hoist returns the per-call default for every read on failure;
+                    // the app keeps working with safe defaults.
+                    print("Hoist configure failed: \(error)")
+                }
+                isReady = true
+            }
+        }
+    }
+}
+```
+
+### 3. Read flags anywhere
+
+```swift
+// SwiftUI
+struct CheckoutView: View {
+    @FeatureFlag("new_checkout") var useNewCheckout
+    @FeatureFlag("max_upload_mb", default: 10) var maxMB
+
+    var body: some View {
+        if useNewCheckout {
+            NewCheckoutView(uploadLimit: maxMB)
+        } else {
+            LegacyCheckoutView()
+        }
+    }
+}
+
+// Plain Swift
+if Hoist.bool("new_checkout") {
+    showNewCheckout()
+}
+let limit = Hoist.int("max_upload_mb", default: 10)
+```
+
+When `Hoist.configure(...)`, `Hoist.update(context:)`, or any override changes, every `@FeatureFlag` view re-renders automatically — Observation tracks the dependency.
+
+## Concepts
+
+### Rules
+
+A flag has a `default` and an ordered list of `rules`. The evaluator walks rules **top to bottom** and returns the first match. Three rule kinds:
+
+| Rule | Behaviour |
+|---|---|
+| `if` | All key/value pairs must match the user's context (AND). |
+| `rollout` | Match if `SHA-256(flagKey + ":" + userID) % 100 < percentage`. |
+| `split` | Deterministically pick a variant by weight. The variant string becomes the value. |
+
+```json
+"rules": [
+  { "if": { "isInternal": true }, "value": true },
+  { "if": { "country": { "in": ["US", "CA"] } }, "value": true },
+  { "rollout": 25, "value": true }
+]
+```
+
+Operators inside `if`: `eq`, `neq`, `in`, `notIn`, `gt`, `gte`, `lt`, `lte`, `contains`, `startsWith`, `endsWith`. A bare value (`{ "country": "US" }`) is sugar for `eq`.
+
+### Deterministic rollouts
+
+Bucketing uses `SHA-256("<flagKey>:<userID>")` reduced modulo 100. The same user always lands in the same bucket for the same flag, so a user never flickers between variants on relaunch.
+
+A `userID` is required for `rollout` and `split` rules. Use a stable per-install UUID in Keychain if you don't have a logged-in user.
+
+### Runtime overrides
+
+Force any flag to a specific value, bypassing rule evaluation. Persisted to a dedicated `UserDefaults` suite (`com.hoist.overrides`), so overrides survive app launches.
+
+```swift
+Hoist.override("new_checkout", with: true)       // force ON
+Hoist.override("max_upload_mb", with: 500)
+Hoist.override("home_layout",   with: "carousel")
+
+Hoist.clearOverride("new_checkout")              // back to rules
+Hoist.clearAllOverrides()
+```
+
+Resolution order: **override → rule → default**.
+
+### Debug overlay
+
+Drop in a SwiftUI screen that lists every flag with a type-aware editor, search, and per-flag reset:
+
+```swift
+import Hoist
+
+struct RootView: View {
+    @State private var showFlags = false
+
+    var body: some View {
+        ContentView()
+            #if DEBUG
+            .toolbar {
+                ToolbarItem {
+                    Button("Flags") { showFlags = true }
+                }
+            }
+            .sheet(isPresented: $showFlags) { HoistDebugView() }
+            #endif
+    }
+}
+```
+
+> **Tip:** Pair it with a shake-gesture, a triple-tap, or a hidden settings entry. Hoist deliberately doesn't ship a gesture trigger so you can present `HoistDebugView` however your app prefers.
+
+## Integrations
+
+### UIKit
+
+Hoist is SwiftUI-native but the core API is plain Swift, so UIKit works fine:
+
+```swift
+import UIKit
+import Hoist
+
+final class CheckoutViewController: UIViewController {
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        if Hoist.bool("new_checkout") {
+            installNewCheckoutFlow()
+        } else {
+            installLegacyFlow()
+        }
+    }
+}
+
+// To present the debug overlay:
+let host = UIHostingController(rootView: HoistDebugView())
+present(host, animated: true)
+```
+
+### Testing
+
+Configure Hoist with inline JSON at the start of each test for full determinism:
+
+```swift
+import Testing
+@testable import MyApp
+import Hoist
+
+@Test func showsNewCheckoutForUSUsers() async throws {
+    let json = #"""
+    { "flags": { "new_checkout": {
+        "type": "bool", "default": false,
+        "rules": [{ "if": { "country": "US" }, "value": true }]
+    }}}
+    """#
+    await Hoist.reset()
+    try await Hoist.configure(
+        source: .data(Data(json.utf8)),
+        context: UserContext(userID: "test", attributes: ["country": .string("US")])
+    )
+
+    #expect(Hoist.bool("new_checkout") == true)
+}
+```
+
+For tests that want a hard-coded value regardless of rules, use `Hoist.override(_:with:)`.
+
+> **Note:** Hoist holds a single global state. If you run tests in parallel across multiple suites that touch `Hoist.configure(...)`, group them under a single `.serialized` parent suite so they don't race.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Public API — Hoist.configure / .bool / .int / @FeatureFlag         │
+└──────────────────┬──────────────────────────────────────────────────┘
+                   │
+        ┌──────────┴──────────┐
+        ▼                     ▼
+┌──────────────┐      ┌────────────────────────────┐
+│  Resolve     │      │  HoistObservable           │
+│  (sync, lock)│      │  (@MainActor @Observable)  │
+└─────┬────────┘      └────────────────────────────┘
+      │ override → rule → default
+      ▼
+┌────────────────────────────────────────────┐
+│  Evaluator (pure function, no I/O)         │
+│  ├─ Condition rules (11 operators)         │
+│  ├─ Rollout rules (SHA-256 bucketing)      │
+│  └─ Split rules (weighted variants)        │
+└────────────────────────────────────────────┘
+```
+
+**Highlights**
+
+- Pure-function evaluator — no I/O, no shared state, fully deterministic
+- Lock-protected snapshot via `OSAllocatedUnfairLock<Storage>`
+- Async loaders (`bundled` / `data` / `url`) on top of structured concurrency
+- `@Observable` SwiftUI bridge for re-rendering
+- Persistent overrides stored in a dedicated `UserDefaults` suite
+
+The full architecture article ships with the package — open the [DocC catalog](https://swiftpackageindex.com/GRimAce11/Hoist/documentation/hoist) for the deeper dive, or read [`Sources/Hoist/Hoist.docc/Architecture.md`](Sources/Hoist/Hoist.docc/Architecture.md) directly.
+
+## Examples
+
+A complete reference app and a comprehensive sample `flags.json` live under [`Examples/`](Examples/):
+
+- [`Examples/flags.json`](Examples/flags.json) — every rule kind and operator in one document.
+- [`Examples/SampleApp.swift`](Examples/SampleApp.swift) — minimal SwiftUI app wired to Hoist with a debug overlay.
+- [`Examples/UIKitUsage.swift`](Examples/UIKitUsage.swift) — UIKit `UIViewController` reading flags and presenting `HoistDebugView`.
+- [`Examples/TestingExample.swift`](Examples/TestingExample.swift) — Swift Testing pattern: `reset` → `configure(.data(...))` → assert.
 
 ## Roadmap
 
-- [x] Project scaffold
-- [x] Core models (Flag, Rule, UserContext)
-- [x] Pure-function evaluator with deterministic bucketing
-- [x] JSON source loaders (bundled, data, remote)
-- [x] SwiftUI `@FeatureFlag` property wrapper
-- [x] Observation-based reactivity for hot reload
-- [x] Runtime overrides with persistence
-- [x] Debug overlay (`HoistDebugView`)
-- [ ] Remote sync with polling and ETag caching
-- [ ] Analytics hook for flag-exposure events
-- [ ] CLI for managing flag config
+- [x] Pure-function evaluator with `if` / `rollout` / `split` rules
+- [x] 11 condition operators (eq, neq, in, notIn, gt, gte, lt, lte, contains, startsWith, endsWith)
+- [x] SHA-256 deterministic bucketing
+- [x] Bundled / data / remote JSON sources
+- [x] `@FeatureFlag` SwiftUI property wrapper
+- [x] Persistent runtime overrides
+- [x] `HoistDebugView` debug overlay
+- [x] DocC documentation catalog
+- [x] Multi-platform CI
+- [ ] **v0.3** — Remote sync with polling + ETag caching
+- [ ] **v0.3** — Layered sources (`.bundled` defaults, `.url` overrides)
+- [ ] **v0.3** — Analytics exposure hook for A/B test attribution
+- [ ] **v1.0** — CLI for linting and managing `flags.json`
+- [ ] **v1.0** — Server-Sent Events transport for sub-second updates
+- [ ] **v1.0** — Optional reference server (Vapor) for self-hosting
+
+## Contributing
+
+Issues, PRs, and discussions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+[MIT](LICENSE) © Chethan Nayak

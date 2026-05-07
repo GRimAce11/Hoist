@@ -4,7 +4,9 @@ import Foundation
 ///
 /// - `bundled`: a JSON file shipped inside the app bundle.
 /// - `data`: raw JSON bytes (useful for testing or pre-loaded configs).
-/// - `url`: a remote JSON endpoint, fetched once via `URLSession`.
+/// - `url`: a remote JSON endpoint, fetched once via `URLSession`. Hoist does
+///   not poll — the document is loaded a single time per `configure(...)` call.
+///   For background refresh, schedule your own `Hoist.configure(...)` calls.
 public enum FlagSource: @unchecked Sendable {
     case bundled(filename: String, bundle: Bundle = .main)
     case data(Data)

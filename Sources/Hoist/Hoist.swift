@@ -57,19 +57,33 @@ public enum Hoist {
     }
 
     // MARK: - Reads
+    //
+    // All read methods are synchronous and thread-safe. They return the
+    // resolved value (override → rule → flag default) when the flag exists,
+    // and the caller-supplied `defaultValue` when the flag is missing, the
+    // resolved value cannot be coerced to the requested type, or `configure`
+    // has not yet completed.
 
+    /// Returns the boolean value of `key`, or `defaultValue` if the flag is
+    /// missing or its resolved value isn't a boolean.
     public static func bool(_ key: String, default defaultValue: Bool = false) -> Bool {
         resolve(key)?.asBool ?? defaultValue
     }
 
+    /// Returns the integer value of `key`, or `defaultValue` if the flag is
+    /// missing or its resolved value isn't an integer.
     public static func int(_ key: String, default defaultValue: Int = 0) -> Int {
         resolve(key)?.asInt ?? defaultValue
     }
 
+    /// Returns the floating-point value of `key`, or `defaultValue` if the flag
+    /// is missing or its resolved value isn't numeric.
     public static func double(_ key: String, default defaultValue: Double = 0) -> Double {
         resolve(key)?.asDouble ?? defaultValue
     }
 
+    /// Returns the string value of `key`, or `defaultValue` if the flag is
+    /// missing or its resolved value isn't a string.
     public static func string(_ key: String, default defaultValue: String = "") -> String {
         resolve(key)?.asString ?? defaultValue
     }

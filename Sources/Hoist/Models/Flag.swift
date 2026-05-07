@@ -1,6 +1,14 @@
 import Foundation
 
 /// A single feature flag definition.
+///
+/// A `Flag` carries a declared ``FlagType``, a `defaultValue` returned when no
+/// rule matches, and an ordered list of ``Rule`` instances. The evaluator walks
+/// `rules` top-to-bottom and returns the value of the first rule that fires.
+///
+/// `Flag` instances are normally produced by decoding a ``FlagDocument`` rather
+/// than constructed directly — but the memberwise initializer is public to
+/// support unit tests and synthetic in-memory flag sources.
 public struct Flag: Sendable, Equatable {
     public let key: String
     public let type: FlagType

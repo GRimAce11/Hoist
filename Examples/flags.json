@@ -1,0 +1,60 @@
+{
+  "flags": {
+    "new_checkout": {
+      "type": "bool",
+      "default": false,
+      "rules": [
+        { "if": { "isInternal": true }, "value": true },
+        { "if": { "country": { "in": ["US", "CA"] } }, "value": true },
+        { "rollout": 25, "value": true }
+      ]
+    },
+
+    "max_upload_mb": {
+      "type": "int",
+      "default": 10,
+      "rules": [
+        { "if": { "plan": { "in": ["pro", "team"] } }, "value": 100 },
+        { "if": { "plan": "enterprise" }, "value": 500 }
+      ]
+    },
+
+    "request_timeout_seconds": {
+      "type": "double",
+      "default": 30.0,
+      "rules": [
+        { "if": { "networkClass": "slow" }, "value": 60.0 }
+      ]
+    },
+
+    "home_layout": {
+      "type": "string",
+      "default": "grid",
+      "rules": [
+        { "split": { "grid": 50, "carousel": 30, "list": 20 } }
+      ]
+    },
+
+    "kill_switch_payments": {
+      "type": "bool",
+      "default": false
+    },
+
+    "minimum_app_build": {
+      "type": "int",
+      "default": 0,
+      "rules": [
+        { "if": { "appBuild": { "lt": 4200 } }, "value": 4200 }
+      ]
+    },
+
+    "enable_beta_features": {
+      "type": "bool",
+      "default": false,
+      "rules": [
+        { "if": { "email": { "endsWith": "@yourcompany.com" } }, "value": true },
+        { "if": { "betaTester": true }, "value": true }
+      ]
+    }
+  }
+}
