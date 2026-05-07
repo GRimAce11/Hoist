@@ -73,6 +73,47 @@ struct CheckoutView: View {
 }
 ```
 
+### Runtime overrides
+
+Force a flag to a specific value at runtime — bypasses rule evaluation.
+Overrides are persisted to a dedicated `UserDefaults` suite, so they survive
+app launches.
+
+```swift
+Hoist.override("new_checkout", with: true)     // force ON
+Hoist.override("max_upload_mb", with: 500)
+Hoist.override("home_layout", with: "carousel")
+
+Hoist.clearOverride("new_checkout")            // back to rules
+Hoist.clearAllOverrides()
+```
+
+Resolution order: **override → rule → default**.
+
+### Debug overlay
+
+Drop in a SwiftUI debug screen that lists every flag with type-aware editors,
+search, and an orange badge on overridden values:
+
+```swift
+import Hoist
+
+struct RootView: View {
+    @State private var showFlags = false
+
+    var body: some View {
+        ContentView()
+            #if DEBUG
+            .onShakeGesture { showFlags = true }
+            .sheet(isPresented: $showFlags) { HoistDebugView() }
+            #endif
+    }
+}
+```
+
+The view auto-refreshes whenever a flag is overridden, the context changes,
+or `configure(...)` is called again.
+
 ## Flag definition format
 
 ```json
@@ -102,12 +143,15 @@ The evaluator walks rules top to bottom and returns the first match. If nothing 
 ## Roadmap
 
 - [x] Project scaffold
-- [ ] Core models (Flag, Rule, UserContext)
-- [ ] Pure-function evaluator with deterministic bucketing
-- [ ] JSON source loaders (bundled, remote)
-- [ ] SwiftUI `@FeatureFlag` property wrapper
-- [ ] Observation-based reactivity for hot reload
-- [ ] Debug overlay for toggling flags at runtime
+- [x] Core models (Flag, Rule, UserContext)
+- [x] Pure-function evaluator with deterministic bucketing
+- [x] JSON source loaders (bundled, data, remote)
+- [x] SwiftUI `@FeatureFlag` property wrapper
+- [x] Observation-based reactivity for hot reload
+- [x] Runtime overrides with persistence
+- [x] Debug overlay (`HoistDebugView`)
+- [ ] Remote sync with polling and ETag caching
+- [ ] Analytics hook for flag-exposure events
 - [ ] CLI for managing flag config
 
 ## License
