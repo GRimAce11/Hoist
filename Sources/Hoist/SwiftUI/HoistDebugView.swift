@@ -56,7 +56,7 @@ public struct HoistDebugView: View {
             #if os(iOS) || os(visionOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
-            #if !os(tvOS)
+            #if !os(watchOS)
             .searchable(text: $search, prompt: "Search flags")
             #endif
         }
