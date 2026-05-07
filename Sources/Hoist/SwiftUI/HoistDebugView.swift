@@ -118,7 +118,9 @@ private struct IntFlagRow: View {
             FlagLabel(key: key, type: "int", currentValue: "\(value)")
             HStack {
                 TextField("value", value: $draft, format: .number)
+                    #if !os(tvOS)
                     .textFieldStyle(.roundedBorder)
+                    #endif
                     #if os(iOS) || os(visionOS)
                     .keyboardType(.numberPad)
                     #endif
@@ -126,7 +128,9 @@ private struct IntFlagRow: View {
                     .onSubmit { Hoist.override(key, with: .int(draft)) }
                 Button("Set") { Hoist.override(key, with: .int(draft)) }
                     .buttonStyle(.bordered)
+                    #if !os(tvOS)
                     .controlSize(.small)
+                    #endif
             }
             OverrideFooter(key: key)
         }
@@ -144,7 +148,9 @@ private struct DoubleFlagRow: View {
             FlagLabel(key: key, type: "double", currentValue: String(format: "%g", value))
             HStack {
                 TextField("value", value: $draft, format: .number)
+                    #if !os(tvOS)
                     .textFieldStyle(.roundedBorder)
+                    #endif
                     #if os(iOS) || os(visionOS)
                     .keyboardType(.decimalPad)
                     #endif
@@ -152,7 +158,9 @@ private struct DoubleFlagRow: View {
                     .onSubmit { Hoist.override(key, with: .double(draft)) }
                 Button("Set") { Hoist.override(key, with: .double(draft)) }
                     .buttonStyle(.bordered)
+                    #if !os(tvOS)
                     .controlSize(.small)
+                    #endif
             }
             OverrideFooter(key: key)
         }
@@ -170,12 +178,16 @@ private struct StringFlagRow: View {
             FlagLabel(key: key, type: "string", currentValue: "\"\(value)\"")
             HStack {
                 TextField("value", text: $draft)
+                    #if !os(tvOS)
                     .textFieldStyle(.roundedBorder)
+                    #endif
                     .onAppear { if !loaded { draft = value; loaded = true } }
                     .onSubmit { Hoist.override(key, with: .string(draft)) }
                 Button("Set") { Hoist.override(key, with: .string(draft)) }
                     .buttonStyle(.bordered)
+                    #if !os(tvOS)
                     .controlSize(.small)
+                    #endif
             }
             OverrideFooter(key: key)
         }
@@ -224,7 +236,9 @@ private struct OverrideFooter: View {
                 }
                 .font(.caption)
                 .buttonStyle(.bordered)
+                #if !os(tvOS)
                 .controlSize(.mini)
+                #endif
             }
             .padding(.top, 2)
         }
