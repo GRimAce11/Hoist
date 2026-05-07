@@ -1,0 +1,57 @@
+{
+  "flags": {
+    "bool_off": {
+      "type": "bool",
+      "default": false
+    },
+    "bool_country_us": {
+      "type": "bool",
+      "default": false,
+      "rules": [
+        { "if": { "country": "US" }, "value": true }
+      ]
+    },
+    "int_pro_user": {
+      "type": "int",
+      "default": 10,
+      "rules": [
+        { "if": { "plan": "pro" }, "value": 100 }
+      ]
+    },
+    "string_layout_split": {
+      "type": "string",
+      "default": "grid",
+      "rules": [
+        { "split": { "grid": 50, "list": 50 } }
+      ]
+    },
+    "bool_rollout_50": {
+      "type": "bool",
+      "default": false,
+      "rules": [
+        { "rollout": 50, "value": true }
+      ]
+    },
+    "bool_age_gate": {
+      "type": "bool",
+      "default": false,
+      "rules": [
+        { "if": { "age": { "gte": 18 } }, "value": true }
+      ]
+    },
+    "bool_country_in_list": {
+      "type": "bool",
+      "default": false,
+      "rules": [
+        { "if": { "country": { "in": ["US", "CA", "UK"] } }, "value": true }
+      ]
+    },
+    "bool_email_domain": {
+      "type": "bool",
+      "default": false,
+      "rules": [
+        { "if": { "email": { "endsWith": "@company.com" } }, "value": true }
+      ]
+    }
+  }
+}
