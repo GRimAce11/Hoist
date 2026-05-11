@@ -457,13 +457,12 @@ an issue if you'd like to move something up.
 - [x] Polling jitter + exponential backoff on failures — v0.4
 - [x] Exposure dedup (`Hoist.exposureDedup`) defaulting to per-session — v0.4
 - [x] Auth headers on `.url(...)` sources for bearer-token endpoints — v0.4
-### Beyond v0.4 — demand-driven
+### Beyond v0.4 — no timeline
 
 v0.4 covers what most apps need from a feature flag library. The items below
-are tracked but **not on a timeline** — they'll be built when someone files
-an issue saying "I need this to adopt Hoist," or when a contributor opens a
-PR. If one of these blocks you, opening a GitHub issue is the fastest way to
-move it up:
+are tracked but **not on a roadmap**. PRs are the fastest path to seeing one
+of these ship; issues are welcome but not guaranteed a response — Hoist is
+maintained as time and interest allow.
 
 - [ ] `hoist lint` CLI for `flags.json` validation
 - [ ] Named segments (reusable condition sets across flags)
