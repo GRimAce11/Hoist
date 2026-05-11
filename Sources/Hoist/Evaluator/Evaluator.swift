@@ -6,13 +6,28 @@ import Foundation
 /// The evaluator has no side effects and no I/O — it is fully deterministic
 /// for a given `(flag, context)` pair.
 enum Evaluator {
+    /// Convenience: returns just the value (default behavior).
     static func evaluate(_ flag: Flag, context: UserContext) -> AttributeValue {
-        for rule in flag.rules {
+        evaluateDetailed(flag, context: context).value
+    }
+
+    /// Result of evaluating a flag, including which rule matched (if any).
+    /// `matchedRuleIndex == nil` means no rule applied and `flag.defaultValue`
+    /// was served.
+    struct Outcome {
+        let value: AttributeValue
+        let matchedRuleIndex: Int?
+    }
+
+    /// Walks rules top-to-bottom and reports which rule index matched, so
+    /// callers can build A/B-test exposure events with variant attribution.
+    static func evaluateDetailed(_ flag: Flag, context: UserContext) -> Outcome {
+        for (index, rule) in flag.rules.enumerated() {
             if let value = apply(rule: rule, flag: flag, context: context) {
-                return value
+                return Outcome(value: value, matchedRuleIndex: index)
             }
         }
-        return flag.defaultValue
+        return Outcome(value: flag.defaultValue, matchedRuleIndex: nil)
     }
 
     // MARK: - Per-rule application

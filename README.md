@@ -223,6 +223,37 @@ try await Hoist.configure(
   a strong `ETag` to get the 304 short-circuit. CDNs like Cloudflare and
   Fastly do this for static files automatically.
 
+### Analytics exposure
+
+Wire `Hoist.onEvaluate` into your analytics SDK to attribute conversion events
+to A/B-test variants. Hoist fires the hook once per public read with the
+served value and where it came from — `.rule(index:)` is the join key for
+variant attribution.
+
+```swift
+Hoist.onEvaluate = { event in
+    analytics.track("flag_exposure", properties: [
+        "flag":   event.flagKey,
+        "value":  String(describing: event.value),
+        "source": String(describing: event.source),
+        "user":   event.userID ?? "",
+    ])
+}
+```
+
+Set this once at app launch — typically before `configure(...)`. `source`
+takes one of four values:
+
+| Source | Meaning |
+|---|---|
+| `.override` | A runtime override set with `Hoist.override(_:with:)` won. |
+| `.rule(index: Int)` | Rule N inside the flag's `rules` array matched. Use this index to attribute variants. |
+| `.defaultValue` | The flag exists, but no rule matched, so the flag's declared `default` was served. |
+| `.fallback` | The flag is missing, or the resolved value could not coerce to the requested Swift type — the caller-supplied `default:` was returned. |
+
+The hook is invoked synchronously on the calling thread, so do not perform
+blocking I/O inside it; dispatch to a background queue or `Task` if needed.
+
 ### Runtime overrides
 
 Force any flag to a specific value, bypassing rule evaluation. Persisted to a dedicated `UserDefaults` suite (`com.hoist.overrides`), so overrides survive app launches.
@@ -366,9 +397,6 @@ A complete reference app and a comprehensive sample `flags.json` live under [`Ex
 
 Hoist is a small, focused library. Things it deliberately does **not** do yet:
 
-- **No exposure events.** Variant assignments are not reported anywhere by
-  default, so A/B-test attribution requires your own glue code.
-  `Hoist.onEvaluate` is planned for v0.3.
 - **No managed dashboard.** Author flags in JSON and ship the file yourself
   (bundle, S3, your own backend). If you want a UI to flip flags without
   committing JSON, reach for LaunchDarkly / Statsig / ConfigCat.
@@ -391,9 +419,9 @@ or open an issue and we'll see if it can move up.
 - [x] DocC documentation catalog
 - [x] Multi-platform CI
 - [x] Versioned document schema (`schemaVersion`) with explicit upgrade errors
-- [x] Layered sources (`.layered([.bundled(...), .url(...)])`) — in progress on `main`
-- [x] Background polling + ETag caching on `.url` sources — in progress on `main`
-- [ ] **v0.3** — Analytics exposure hook for A/B test attribution
+- [x] Layered sources (`.layered([.bundled(...), .url(...)])`) — shipping in v0.3
+- [x] Background polling + ETag caching on `.url` sources — shipping in v0.3
+- [x] `Hoist.onEvaluate` analytics exposure hook — shipping in v0.3
 - [ ] **v1.0** — CLI for linting and managing `flags.json`
 - [ ] **v1.0** — Server-Sent Events transport for sub-second updates
 - [ ] **v1.0** — Optional reference server (Vapor) for self-hosting

@@ -7,25 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### In progress — 0.3.0
+(Nothing yet — next changes will land here.)
 
-- **Added** `FlagSource.layered([FlagSource])`: ordered fallback chain with
-  per-key overlay merge — later layers override earlier per flag key,
-  individual layer failures are tolerated, and all-fail rethrows the last
-  error. Typical shape: `.layered([.bundled("defaults.json"), .url(remote)])`.
-- **Added** background polling on `FlagSource.url`: payload now takes a
+## [0.3.0] — 2026-05-11
+
+### Added
+
+- `FlagSource.layered([FlagSource])`: ordered fallback chain with per-key
+  overlay merge — later layers override earlier per flag key, individual
+  layer failures are tolerated, and all-fail rethrows the last error.
+  Typical shape: `.layered([.bundled("defaults.json"), .url(remote)])`.
+- Background polling on `FlagSource.url`: payload now takes a
   `pollInterval: TimeInterval?` and Hoist spawns a cancellable refresh task
   when the value is non-nil. Each refresh sends `If-None-Match` with the
   cached `ETag` and short-circuits on a `304 Not Modified`. Polling is
   scoped per source: a `.url` nested inside `.layered(...)` triggers a
   refresh of the whole chain at the shortest declared interval.
-  **Source-breaking** for pattern matchers on `case .url(let u)` — update to
-  `case .url(let u, _)`. Existing call sites that construct `.url(url)`
-  continue to compile because `pollInterval` defaults to `nil`.
+- `Hoist.onEvaluate` exposure hook for A/B-test attribution. Fires once per
+  public read (`bool` / `int` / `double` / `string`) with the served value
+  and where it came from. Source taxonomy: `.override`, `.rule(index:)`,
+  `.defaultValue`, `.fallback`.
+- New public types `EvaluationEvent` and `EvaluationSource` (in
+  `Sources/Hoist/Models/EvaluationEvent.swift`).
+- Internal `Evaluator.evaluateDetailed(_:context:)` that returns the matched
+  rule index alongside the value so the exposure hook can populate it.
 
-### Planned for 0.3.0
+### Changed
 
-- Analytics exposure hook (`Hoist.onEvaluate`) for A/B-test attribution.
+- **Source-breaking**: `FlagSource.url(URL)` is now `FlagSource.url(URL, pollInterval: TimeInterval? = nil)`.
+  Constructor sites continue to compile (`.url(url)` still works);
+  pattern matchers on `case .url(let u)` must add a placeholder for the new
+  payload: `case .url(let u, _)`. Acceptable in 0.x.
 
 ## [0.2.2] — 2026-05-11
 
@@ -91,7 +103,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `@FeatureFlag` SwiftUI property wrapper with Observation-based reactivity.
 - Swift 6 strict concurrency, zero third-party dependencies.
 
-[Unreleased]: https://github.com/GRimAce11/Hoist/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/GRimAce11/Hoist/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/GRimAce11/Hoist/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/GRimAce11/Hoist/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/GRimAce11/Hoist/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/GRimAce11/Hoist/compare/v0.1.0...v0.2.0

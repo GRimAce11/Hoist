@@ -23,6 +23,40 @@ import os
 public enum Hoist {
     static let storage = OSAllocatedUnfairLock<Storage>(initialState: .empty)
     static let overrideStore = OverrideStore()
+    private static let evaluationHookLock = OSAllocatedUnfairLock<(@Sendable (EvaluationEvent) -> Void)?>(initialState: nil)
+
+    // MARK: - Analytics exposure hook
+
+    /// A closure invoked once per public read (`bool` / `int` / `double` /
+    /// `string`) with the value Hoist actually served and where it came from.
+    /// Wire this up to your analytics SDK to attribute conversion events to
+    /// A/B-test variants.
+    ///
+    /// ```swift
+    /// Hoist.onEvaluate = { event in
+    ///     analytics.track("flag_exposure", properties: [
+    ///         "flag":   event.flagKey,
+    ///         "value":  String(describing: event.value),
+    ///         "source": String(describing: event.source),
+    ///     ])
+    /// }
+    /// ```
+    ///
+    /// Set once at app launch — typically before `configure(...)`. The hook
+    /// is invoked synchronously on the thread that performed the read, so
+    /// heavy work (network I/O, file writes) should be dispatched out.
+    public static var onEvaluate: (@Sendable (EvaluationEvent) -> Void)? {
+        get { evaluationHookLock.withLock { $0 } }
+        set { evaluationHookLock.withLock { $0 = newValue } }
+    }
+
+    private static func fire(_ event: EvaluationEvent) {
+        // Snapshot the hook under its own lock, then call it OUTSIDE the lock.
+        // Storage is a separate lock; reading either lock from inside the
+        // user's hook is safe.
+        let hook = evaluationHookLock.withLock { $0 }
+        hook?(event)
+    }
 
     // MARK: - Schema versioning
 
@@ -129,30 +163,60 @@ public enum Hoist {
     // resolved value (override → rule → flag default) when the flag exists,
     // and the caller-supplied `defaultValue` when the flag is missing, the
     // resolved value cannot be coerced to the requested type, or `configure`
-    // has not yet completed.
+    // has not yet completed. Each call also fires `onEvaluate` (if set) with
+    // the actually-served value and where it came from.
 
     /// Returns the boolean value of `key`, or `defaultValue` if the flag is
     /// missing or its resolved value isn't a boolean.
     public static func bool(_ key: String, default defaultValue: Bool = false) -> Bool {
-        resolve(key)?.asBool ?? defaultValue
+        let resolution = resolve(key)
+        if let asBool = resolution.value?.asBool {
+            emit(key: key, value: .bool(asBool), source: resolution.source)
+            return asBool
+        }
+        emit(key: key, value: .bool(defaultValue), source: .fallback)
+        return defaultValue
     }
 
     /// Returns the integer value of `key`, or `defaultValue` if the flag is
     /// missing or its resolved value isn't an integer.
     public static func int(_ key: String, default defaultValue: Int = 0) -> Int {
-        resolve(key)?.asInt ?? defaultValue
+        let resolution = resolve(key)
+        if let asInt = resolution.value?.asInt {
+            emit(key: key, value: .int(asInt), source: resolution.source)
+            return asInt
+        }
+        emit(key: key, value: .int(defaultValue), source: .fallback)
+        return defaultValue
     }
 
     /// Returns the floating-point value of `key`, or `defaultValue` if the flag
     /// is missing or its resolved value isn't numeric.
     public static func double(_ key: String, default defaultValue: Double = 0) -> Double {
-        resolve(key)?.asDouble ?? defaultValue
+        let resolution = resolve(key)
+        if let asDouble = resolution.value?.asDouble {
+            emit(key: key, value: .double(asDouble), source: resolution.source)
+            return asDouble
+        }
+        emit(key: key, value: .double(defaultValue), source: .fallback)
+        return defaultValue
     }
 
     /// Returns the string value of `key`, or `defaultValue` if the flag is
     /// missing or its resolved value isn't a string.
     public static func string(_ key: String, default defaultValue: String = "") -> String {
-        resolve(key)?.asString ?? defaultValue
+        let resolution = resolve(key)
+        if let asString = resolution.value?.asString {
+            emit(key: key, value: .string(asString), source: resolution.source)
+            return asString
+        }
+        emit(key: key, value: .string(defaultValue), source: .fallback)
+        return defaultValue
+    }
+
+    private static func emit(key: String, value: AttributeValue, source: EvaluationSource) {
+        let userID = storage.withLock { $0.context.userID }
+        fire(EvaluationEvent(flagKey: key, value: value, source: source, userID: userID))
     }
 
     // MARK: - Introspection (mainly for tests / debug UIs)
@@ -175,11 +239,24 @@ public enum Hoist {
 
     // MARK: - Internal
 
-    static func resolve(_ key: String) -> AttributeValue? {
-        storage.withLock { state -> AttributeValue? in
-            if let override = state.overrides[key] { return override }
-            guard let flag = state.registry.flag(for: key) else { return nil }
-            return Evaluator.evaluate(flag, context: state.context)
+    struct Resolution {
+        let value: AttributeValue?
+        let source: EvaluationSource
+    }
+
+    static func resolve(_ key: String) -> Resolution {
+        storage.withLock { state -> Resolution in
+            if let override = state.overrides[key] {
+                return Resolution(value: override, source: .override)
+            }
+            guard let flag = state.registry.flag(for: key) else {
+                return Resolution(value: nil, source: .fallback)
+            }
+            let outcome = Evaluator.evaluateDetailed(flag, context: state.context)
+            let source: EvaluationSource = outcome.matchedRuleIndex
+                .map(EvaluationSource.rule(index:))
+                ?? .defaultValue
+            return Resolution(value: outcome.value, source: source)
         }
     }
 }

@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import os
 @testable import Hoist
 
 /// Tests that exercise Hoist's global runtime state (configure / overrides /
@@ -294,6 +295,132 @@ struct HoistRuntime {
             #expect(task != nil)
             #expect(task?.isCancelled == false)
             await Hoist.reset()
+        }
+    }
+
+    // MARK: - onEvaluate hook
+
+    /// Thread-safe collector used by `onEvaluate` tests. Each test installs a
+    /// fresh instance and clears `Hoist.onEvaluate` on exit.
+    final class EventCollector: @unchecked Sendable {
+        private let lock = OSAllocatedUnfairLock<[EvaluationEvent]>(initialState: [])
+        func record(_ event: EvaluationEvent) { lock.withLock { $0.append(event) } }
+        var events: [EvaluationEvent] { lock.withLock { $0 } }
+        var last: EvaluationEvent? { lock.withLock { $0.last } }
+    }
+
+    @Suite("Evaluation hook")
+    struct EvaluationHook {
+
+        @Test func hookFiresForBoolRead() async throws {
+            try await HoistRuntime.freshConfigure(context: UserContext(
+                userID: "alice", attributes: ["country": .string("US")]
+            ))
+            let collector = EventCollector()
+            Hoist.onEvaluate = { collector.record($0) }
+            defer { Hoist.onEvaluate = nil }
+
+            _ = Hoist.bool("bool_country_us")
+
+            #expect(collector.events.count == 1)
+            #expect(collector.last?.flagKey == "bool_country_us")
+            #expect(collector.last?.value == .bool(true))
+            #expect(collector.last?.userID == "alice")
+        }
+
+        @Test func reportsRuleIndexForMatchedRule() async throws {
+            try await HoistRuntime.freshConfigure(context: UserContext(
+                userID: "alice", attributes: ["country": .string("US")]
+            ))
+            let collector = EventCollector()
+            Hoist.onEvaluate = { collector.record($0) }
+            defer { Hoist.onEvaluate = nil }
+
+            _ = Hoist.bool("bool_country_us")
+
+            #expect(collector.last?.source == .rule(index: 0))
+        }
+
+        @Test func reportsDefaultValueWhenNoRuleMatches() async throws {
+            try await HoistRuntime.freshConfigure(context: UserContext(
+                userID: "alice", attributes: ["country": .string("DE")]
+            ))
+            let collector = EventCollector()
+            Hoist.onEvaluate = { collector.record($0) }
+            defer { Hoist.onEvaluate = nil }
+
+            _ = Hoist.bool("bool_country_us")
+
+            #expect(collector.last?.source == .defaultValue)
+            #expect(collector.last?.value == .bool(false))
+        }
+
+        @Test func reportsOverrideSource() async throws {
+            try await HoistRuntime.freshConfigure(context: .anonymous)
+            Hoist.override("bool_country_us", with: .bool(true))
+            let collector = EventCollector()
+            Hoist.onEvaluate = { collector.record($0) }
+            defer {
+                Hoist.onEvaluate = nil
+                Hoist.clearAllOverrides()
+            }
+
+            _ = Hoist.bool("bool_country_us")
+
+            #expect(collector.last?.source == .override)
+            #expect(collector.last?.value == .bool(true))
+        }
+
+        @Test func reportsFallbackForMissingFlag() async throws {
+            try await HoistRuntime.freshConfigure(context: .anonymous)
+            let collector = EventCollector()
+            Hoist.onEvaluate = { collector.record($0) }
+            defer { Hoist.onEvaluate = nil }
+
+            _ = Hoist.bool("does_not_exist", default: true)
+
+            #expect(collector.last?.source == .fallback)
+            #expect(collector.last?.value == .bool(true))
+        }
+
+        @Test func reportsFallbackForTypeMismatchedOverride() async throws {
+            try await HoistRuntime.freshConfigure(context: .anonymous)
+            Hoist.override("bool_country_us", with: .string("nonsense"))
+            let collector = EventCollector()
+            Hoist.onEvaluate = { collector.record($0) }
+            defer {
+                Hoist.onEvaluate = nil
+                Hoist.clearAllOverrides()
+            }
+
+            _ = Hoist.bool("bool_country_us", default: true)
+
+            #expect(collector.last?.source == .fallback)
+            #expect(collector.last?.value == .bool(true))
+        }
+
+        @Test func firesForAllReadTypes() async throws {
+            try await HoistRuntime.freshConfigure(context: .anonymous)
+            let collector = EventCollector()
+            Hoist.onEvaluate = { collector.record($0) }
+            defer { Hoist.onEvaluate = nil }
+
+            _ = Hoist.bool("bool_off")
+            _ = Hoist.int("int_pro_user")
+            _ = Hoist.double("missing_double", default: 1.5)
+            _ = Hoist.string("string_layout_split")
+
+            #expect(collector.events.count == 4)
+            #expect(collector.events.map(\.flagKey) == [
+                "bool_off", "int_pro_user", "missing_double", "string_layout_split"
+            ])
+        }
+
+        @Test func nilHookIsSafe() async throws {
+            try await HoistRuntime.freshConfigure(context: .anonymous)
+            Hoist.onEvaluate = nil
+            // Should not crash, just return the value.
+            _ = Hoist.bool("bool_off")
         }
     }
 }
