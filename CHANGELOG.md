@@ -7,9 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### In progress — 0.3.0
+
+- **Added** `FlagSource.layered([FlagSource])`: ordered fallback chain with
+  per-key overlay merge — later layers override earlier per flag key,
+  individual layer failures are tolerated, and all-fail rethrows the last
+  error. Typical shape: `.layered([.bundled("defaults.json"), .url(remote)])`.
+
 ### Planned for 0.3.0
+
 - Remote sync with polling + ETag caching for `FlagSource.url(...)`.
-- Layered flag sources (`.layered([.bundled(...), .url(...)])`).
 - Analytics exposure hook (`Hoist.onEvaluate`) for A/B-test attribution.
 
 ## [0.2.2] — 2026-05-11

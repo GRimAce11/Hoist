@@ -335,6 +335,30 @@ A complete reference app and a comprehensive sample `flags.json` live under [`Ex
 - [`Examples/UIKitUsage.swift`](Examples/UIKitUsage.swift) — UIKit `UIViewController` reading flags and presenting `HoistDebugView`.
 - [`Examples/TestingExample.swift`](Examples/TestingExample.swift) — Swift Testing pattern: `reset` → `configure(.data(...))` → assert.
 
+## Limitations
+
+Hoist is a small, focused library. Things it deliberately does **not** do yet:
+
+- **No background refresh.** `Hoist.configure(...)` loads the document once.
+  To pick up server-side changes mid-session, call `configure(...)` again
+  yourself — typically on app foreground or via your own timer. Polling +
+  ETag caching is planned for v0.3.
+- **No layered fallback.** If `FlagSource.url(...)` fails, reads return the
+  caller-supplied defaults. There is no automatic fallback to a bundled
+  file yet. Planned for v0.3.
+- **No exposure events.** Variant assignments are not reported anywhere by
+  default, so A/B-test attribution requires your own glue code.
+  `Hoist.onEvaluate` is planned for v0.3.
+- **No managed dashboard.** Author flags in JSON and ship the file yourself
+  (bundle, S3, your own backend). If you want a UI to flip flags without
+  committing JSON, reach for LaunchDarkly / Statsig / ConfigCat.
+- **No sub-second propagation.** Server-Sent Events / push transport is on
+  the v1.0 roadmap. Today the floor is "how often does your app re-call
+  `Hoist.configure(...)`."
+
+If one of these is a hard blocker, the v0.3 roadmap below is where to look —
+or open an issue and we'll see if it can move up.
+
 ## Roadmap
 
 - [x] Pure-function evaluator with `if` / `rollout` / `split` rules
@@ -347,8 +371,8 @@ A complete reference app and a comprehensive sample `flags.json` live under [`Ex
 - [x] DocC documentation catalog
 - [x] Multi-platform CI
 - [x] Versioned document schema (`schemaVersion`) with explicit upgrade errors
+- [x] Layered sources (`.layered([.bundled(...), .url(...)])`) — in progress on `main`
 - [ ] **v0.3** — Remote sync with polling + ETag caching
-- [ ] **v0.3** — Layered sources (`.bundled` defaults, `.url` overrides)
 - [ ] **v0.3** — Analytics exposure hook for A/B test attribution
 - [ ] **v1.0** — CLI for linting and managing `flags.json`
 - [ ] **v1.0** — Server-Sent Events transport for sub-second updates

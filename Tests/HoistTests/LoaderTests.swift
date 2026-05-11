@@ -177,4 +177,73 @@ struct LoaderTests {
             return found == 99
         }
     }
+
+    // MARK: - Layered sources
+
+    private static let baseLayer = """
+    {
+      "schemaVersion": 1,
+      "flags": {
+        "a": { "type": "bool", "default": false },
+        "b": { "type": "int",  "default": 10 }
+      }
+    }
+    """
+
+    private static let overrideLayer = """
+    {
+      "schemaVersion": 1,
+      "flags": {
+        "b": { "type": "int",    "default": 999 },
+        "c": { "type": "string", "default": "hello" }
+      }
+    }
+    """
+
+    @Test func layeredMergesWithLaterWinning() async throws {
+        let source = FlagSource.layered([
+            .data(Data(Self.baseLayer.utf8)),
+            .data(Data(Self.overrideLayer.utf8)),
+        ])
+        let doc = try await source.load()
+
+        #expect(doc.flags["a"]?.defaultValue == .bool(false))   // only in base
+        #expect(doc.flags["b"]?.defaultValue == .int(999))      // override wins
+        #expect(doc.flags["c"]?.defaultValue == .string("hello")) // only in override
+        #expect(doc.flags.count == 3)
+    }
+
+    @Test func layeredTolerantOfFailingLayer() async throws {
+        let source = FlagSource.layered([
+            .data(Data(Self.baseLayer.utf8)),
+            .bundled(filename: "missing.json", bundle: .module), // this fails
+        ])
+        let doc = try await source.load()
+
+        // Base survives even though the URL/bundled layer failed.
+        #expect(doc.flags["a"]?.defaultValue == .bool(false))
+        #expect(doc.flags["b"]?.defaultValue == .int(10))
+    }
+
+    @Test func layeredThrowsLastErrorWhenAllFail() async {
+        let source = FlagSource.layered([
+            .bundled(filename: "first-missing.json", bundle: .module),
+            .bundled(filename: "second-missing.json", bundle: .module),
+        ])
+        await #expect {
+            try await source.load()
+        } throws: { error in
+            guard case FlagSourceError.fileNotFound(let filename) = error else {
+                return false
+            }
+            return filename == "second-missing.json"
+        }
+    }
+
+    @Test func layeredEmptyThrows() async {
+        let source = FlagSource.layered([])
+        await #expect(throws: FlagSourceError.self) {
+            try await source.load()
+        }
+    }
 }

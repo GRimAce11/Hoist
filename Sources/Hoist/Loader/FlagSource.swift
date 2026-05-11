@@ -7,10 +7,18 @@ import Foundation
 /// - `url`: a remote JSON endpoint, fetched once via `URLSession`. Hoist does
 ///   not poll — the document is loaded a single time per `configure(...)` call.
 ///   For background refresh, schedule your own `Hoist.configure(...)` calls.
+/// - `layered`: an ordered list of fallback sources. Layers load sequentially;
+///   individual layer failures are tolerated, and the resulting documents are
+///   merged per-flag-key with **later layers overriding earlier ones**. The
+///   common shape is `.layered([.bundled("defaults.json"), .url(remote)])`:
+///   bundled defaults are the floor, the remote document fills in or
+///   overrides per key. If every layer fails, the error from the last
+///   attempted layer is rethrown.
 public enum FlagSource: @unchecked Sendable {
     case bundled(filename: String, bundle: Bundle = .main)
     case data(Data)
     case url(URL)
+    indirect case layered([FlagSource])
 }
 
 /// Errors that can be thrown while loading a flag configuration.
@@ -45,7 +53,35 @@ extension FlagSource {
             return try Self.decode(data)
         case .url(let url):
             return try await Self.loadRemote(url: url)
+        case .layered(let layers):
+            return try await Self.loadLayered(layers: layers)
         }
+    }
+
+    private static func loadLayered(layers: [FlagSource]) async throws -> FlagDocument {
+        guard !layers.isEmpty else {
+            throw FlagSourceError.decoding(message: "layered source requires at least one layer")
+        }
+        var merged: [String: Flag] = [:]
+        var schemaVersion: Int? = nil
+        var lastError: Error? = nil
+        var anySucceeded = false
+        for layer in layers {
+            do {
+                let document = try await layer.load()
+                anySucceeded = true
+                schemaVersion = document.schemaVersion ?? schemaVersion
+                for (key, flag) in document.flags {
+                    merged[key] = flag
+                }
+            } catch {
+                lastError = error
+            }
+        }
+        if !anySucceeded, let error = lastError {
+            throw error
+        }
+        return FlagDocument(schemaVersion: schemaVersion, flags: merged)
     }
 
     private static func loadBundled(filename: String, bundle: Bundle) throws -> FlagDocument {
