@@ -1,10 +1,28 @@
 import Foundation
 
+/// Controls how often `Hoist.onEvaluate` fires for the same effective
+/// assignment.
+///
+/// `perSession` (the default) collapses repeated reads of the same flag for
+/// the same user that resolve to the same value and source — important for
+/// A/B-test cost control, since a single SwiftUI body might call
+/// `Hoist.bool(...)` dozens of times per render and you do not want to pay
+/// for dozens of identical exposure events. The dedup set is cleared on
+/// every `Hoist.configure(...)` and `Hoist.reset()`.
+///
+/// `everyRead` fires the hook on every public read with no deduplication —
+/// useful if you want telemetry on per-call frequency or are wiring
+/// `onEvaluate` into a debug stream rather than analytics.
+public enum ExposureDedup: Sendable, Hashable {
+    case perSession
+    case everyRead
+}
+
 /// Where a resolved flag value came from.
 ///
 /// Returned via `EvaluationEvent.source` and consumed by `Hoist.onEvaluate`
 /// listeners (typically to attribute A/B-test variants in analytics).
-public enum EvaluationSource: Sendable, Equatable {
+public enum EvaluationSource: Sendable, Hashable {
     /// A runtime override was set with `Hoist.override(_:with:)` and won.
     case override
 
@@ -30,7 +48,7 @@ public enum EvaluationSource: Sendable, Equatable {
 /// Use this to ship variant attribution events into your analytics pipeline
 /// (Amplitude, Mixpanel, Segment, BigQuery, …). The `flagKey` + rule index
 /// pair is the natural join key against downstream conversion events.
-public struct EvaluationEvent: Sendable, Equatable {
+public struct EvaluationEvent: Sendable, Hashable {
     /// The flag key the caller requested.
     public let flagKey: String
 

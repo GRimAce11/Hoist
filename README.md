@@ -198,30 +198,36 @@ A `userID` is required for `rollout` and `split` rules. Use a stable per-install
 
 ### Remote sources and background refresh
 
-`FlagSource.url(_:pollInterval:)` fetches a JSON document over HTTPS. Pass a
-`pollInterval` to keep it fresh: Hoist spawns a cancellable background task
-that refetches every N seconds, sending `If-None-Match` with the cached
-`ETag` so an unchanged document costs ~200 bytes per check.
+`FlagSource.url(_:headers:pollInterval:)` fetches a JSON document over HTTPS.
+Pass `headers` for auth (`["Authorization": "Bearer …"]` or signed-URL
+metadata), and pass `pollInterval` to keep it fresh: Hoist spawns a
+cancellable background task that refetches every N seconds, sending
+`If-None-Match` with the cached `ETag` so an unchanged document costs ~200
+bytes per check.
 
 ```swift
 try await Hoist.configure(
     source: .layered([
-        .bundled(filename: "flags.json"),                               // floor
-        .url(URL(string: "https://flags.acme.com/ios.json")!,
-             pollInterval: 60),                                          // override + refresh
+        .bundled(filename: "flags.json"),                               // offline floor
+        .url(
+            URL(string: "https://flags.acme.com/ios.json")!,
+            headers: ["Authorization": "Bearer \(authToken)"],          // auth on every fetch
+            pollInterval: 60                                            // refresh + ETag
+        ),
     ]),
     context: UserContext(userID: user.id, attributes: [...])
 )
 ```
 
-- Bundled defaults are always available offline, so reads keep working when
-  the network is down or your endpoint is 5xx-ing.
-- The remote layer fills in / overrides keys per `schemaVersion` merge rules.
-- Polling stops automatically on the next `Hoist.configure(...)` or
-  `Hoist.reset()`.
-- Have your endpoint set `Cache-Control: no-cache, must-revalidate` and emit
-  a strong `ETag` to get the 304 short-circuit. CDNs like Cloudflare and
-  Fastly do this for static files automatically.
+- **Resilience.** Bundled defaults are always available offline, so reads
+  keep working when the network is down or your endpoint is 5xx-ing.
+- **Polling discipline.** ±10% jitter prevents a million apps from aligning
+  to exact minute boundaries; exponential backoff (capped at 16×) avoids
+  hammering a failing endpoint. Polling stops automatically on the next
+  `Hoist.configure(...)` or `Hoist.reset()`.
+- **Caching.** Have your endpoint set `Cache-Control: no-cache, must-revalidate`
+  and emit a strong `ETag` to get the 304 short-circuit. CDNs like
+  Cloudflare and Fastly do this for static files automatically.
 
 ### Analytics exposure
 
@@ -253,6 +259,19 @@ takes one of four values:
 
 The hook is invoked synchronously on the calling thread, so do not perform
 blocking I/O inside it; dispatch to a background queue or `Task` if needed.
+
+**Exposure dedup is on by default.** Hoist collapses repeated reads of the
+same flag for the same user that resolve to the same `(value, source)` —
+critical for cost control, since a single SwiftUI view body might call
+`Hoist.bool(...)` dozens of times per render. The dedup set is cleared on
+every `Hoist.configure(...)` and `Hoist.reset()`, so a new session always
+re-fires for every flag at least once. If you actually want per-call
+telemetry, opt out:
+
+```swift
+Hoist.exposureDedup = .everyRead   // fire on every public read
+Hoist.exposureDedup = .perSession  // default — fire once per (flag, user, value, source)
+```
 
 ### Runtime overrides
 
@@ -402,10 +421,23 @@ Hoist is a small, focused library. Things it deliberately does **not** do yet:
   committing JSON, reach for LaunchDarkly / Statsig / ConfigCat.
 - **No sub-second propagation.** Server-Sent Events / push transport is on
   the v1.0 roadmap. Today the floor is "how often does your app re-call
-  `Hoist.configure(...)`."
+  `Hoist.configure(...)`" or your `pollInterval`.
+- **No `flags.json` linter.** Typos in operator names (`"equls"` instead of
+  `"eq"`), type mismatches between `default:` and rule values, or
+  unreachable rules currently slip through the decoder and silently no-op
+  at runtime. A `hoist lint` CLI is on the v0.5 roadmap.
+- **No named segments, prerequisites, or scheduled flags.** If 20 flags all
+  target "internal US users on iOS 17+", you write that condition 20 times.
+  No "Flag A only applies if Flag B is on" expression. No "turn this on at
+  date X" rule. These are the next-tier targeting features and are tracked
+  for v1.0.
+- **Layered merge is per-flag-key, not per-rule.** When `.layered(...)`
+  resolves the same flag key in two layers, the higher-precedence layer's
+  *entire* flag definition (default + rules) wins. There's no way to
+  "extend bundled rules with an additional remote rule."
 
-If one of these is a hard blocker, the v0.3 roadmap below is where to look —
-or open an issue and we'll see if it can move up.
+If one of these is a hard blocker, the roadmap below tracks the order; open
+an issue if you'd like to move something up.
 
 ## Roadmap
 
@@ -419,10 +451,15 @@ or open an issue and we'll see if it can move up.
 - [x] DocC documentation catalog
 - [x] Multi-platform CI
 - [x] Versioned document schema (`schemaVersion`) with explicit upgrade errors
-- [x] Layered sources (`.layered([.bundled(...), .url(...)])`) — shipping in v0.3
-- [x] Background polling + ETag caching on `.url` sources — shipping in v0.3
-- [x] `Hoist.onEvaluate` analytics exposure hook — shipping in v0.3
-- [ ] **v1.0** — CLI for linting and managing `flags.json`
+- [x] Layered sources (`.layered([.bundled(...), .url(...)])`) — v0.3
+- [x] Background polling + ETag caching on `.url` sources — v0.3
+- [x] `Hoist.onEvaluate` analytics exposure hook — v0.3
+- [x] Polling jitter + exponential backoff on failures — v0.4
+- [x] Exposure dedup (`Hoist.exposureDedup`) defaulting to per-session — v0.4
+- [x] Auth headers on `.url(...)` sources for bearer-token endpoints — v0.4
+- [ ] **v0.5** — `hoist lint` CLI for `flags.json` validation
+- [ ] **v0.5** — Named segments (reusable condition sets)
+- [ ] **v1.0** — Flag prerequisites + scheduled (date-gated) rules
 - [ ] **v1.0** — Server-Sent Events transport for sub-second updates
 - [ ] **v1.0** — Optional reference server (Vapor) for self-hosting
 

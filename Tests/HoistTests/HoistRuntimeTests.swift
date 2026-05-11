@@ -422,5 +422,178 @@ struct HoistRuntime {
             // Should not crash, just return the value.
             _ = Hoist.bool("bool_off")
         }
+
+        // MARK: - Dedup
+
+        @Test func dedupCollapsesRepeatedReadsToOneEvent() async throws {
+            try await HoistRuntime.freshConfigure(context: UserContext(
+                userID: "alice", attributes: ["country": .string("US")]
+            ))
+            Hoist.exposureDedup = .perSession  // default; explicit for clarity
+            let collector = EventCollector()
+            Hoist.onEvaluate = { collector.record($0) }
+            defer { Hoist.onEvaluate = nil }
+
+            for _ in 0..<100 { _ = Hoist.bool("bool_country_us") }
+
+            #expect(collector.events.count == 1)
+        }
+
+        @Test func dedupFiresAgainWhenServedValueChanges() async throws {
+            try await HoistRuntime.freshConfigure(context: UserContext(
+                userID: "alice", attributes: ["country": .string("DE")]
+            ))
+            let collector = EventCollector()
+            Hoist.onEvaluate = { collector.record($0) }
+            defer { Hoist.onEvaluate = nil }
+
+            _ = Hoist.bool("bool_country_us")  // false, defaultValue
+            _ = Hoist.bool("bool_country_us")  // false again, deduped
+
+            await Hoist.update(context: UserContext(
+                userID: "alice", attributes: ["country": .string("US")]
+            ))
+            _ = Hoist.bool("bool_country_us")  // true, rule(index: 0) — different key, fires
+
+            #expect(collector.events.count == 2)
+            #expect(collector.events.map(\.value) == [.bool(false), .bool(true)])
+        }
+
+        @Test func everyReadDedupDisablesDedup() async throws {
+            try await HoistRuntime.freshConfigure(context: UserContext(
+                userID: "alice", attributes: ["country": .string("US")]
+            ))
+            Hoist.exposureDedup = .everyRead
+            defer { Hoist.exposureDedup = .perSession }
+            let collector = EventCollector()
+            Hoist.onEvaluate = { collector.record($0) }
+            defer { Hoist.onEvaluate = nil }
+
+            for _ in 0..<5 { _ = Hoist.bool("bool_country_us") }
+
+            #expect(collector.events.count == 5)
+        }
+
+        @Test func configureStartsFreshDedupSession() async throws {
+            try await HoistRuntime.freshConfigure(context: UserContext(
+                userID: "alice", attributes: ["country": .string("US")]
+            ))
+            let collector = EventCollector()
+            Hoist.onEvaluate = { collector.record($0) }
+            defer { Hoist.onEvaluate = nil }
+
+            _ = Hoist.bool("bool_country_us")
+            _ = Hoist.bool("bool_country_us")  // deduped
+
+            try await HoistRuntime.freshConfigure(context: UserContext(
+                userID: "alice", attributes: ["country": .string("US")]
+            ))
+            _ = Hoist.bool("bool_country_us")  // new session, fires again
+
+            #expect(collector.events.count == 2)
+        }
+    }
+
+    // MARK: - Network integration (URLProtocol stub)
+
+    @Suite("Network integration")
+    struct NetworkIntegration {
+
+        @Test func pollingActuallyRefetchesAndUpdatesRegistry() async throws {
+            let url = URL(string: "https://hoist-test.invalid/poll.json")!
+            let counter = OSAllocatedUnfairLock<Int>(initialState: 0)
+            StubURLProtocol.register(url.absoluteString) { _ in
+                let count = counter.withLock { value -> Int in
+                    value += 1
+                    return value
+                }
+                let value = count >= 2 ? "true" : "false"
+                let json = #"{"schemaVersion":1,"flags":{"x":{"type":"bool","default":\#(value)}}}"#
+                return (200, ["Content-Type": "application/json"], Data(json.utf8))
+            }
+            let restore = StubbedHoistSession.install()
+            defer { restore() }
+
+            await Hoist.reset()
+            try await Hoist.configure(
+                source: .url(url, pollInterval: 0.05),
+                context: .anonymous
+            )
+
+            #expect(Hoist.bool("x") == false)
+
+            // Wait long enough for several polls (jitter + backoff considered)
+            try await Task.sleep(for: .milliseconds(500))
+
+            let finalCount = counter.withLock { $0 }
+            #expect(finalCount >= 2, "expected initial + at least one poll, got \(finalCount)")
+            #expect(Hoist.bool("x") == true)
+
+            await Hoist.reset()
+        }
+
+        @Test func authHeadersAreSentOnFetch() async throws {
+            let url = URL(string: "https://hoist-test.invalid/auth.json")!
+            let captured = OSAllocatedUnfairLock<[String: String]>(initialState: [:])
+            StubURLProtocol.register(url.absoluteString) { request in
+                captured.withLock { $0 = request.allHTTPHeaderFields ?? [:] }
+                let json = #"{"schemaVersion":1,"flags":{}}"#
+                return (200, [:], Data(json.utf8))
+            }
+            let restore = StubbedHoistSession.install()
+            defer { restore() }
+
+            await Hoist.reset()
+            try await Hoist.configure(
+                source: .url(url, headers: [
+                    "Authorization": "Bearer test-token-xyz",
+                    "X-API-Key": "abc123",
+                ]),
+                context: .anonymous
+            )
+
+            let sent = captured.withLock { $0 }
+            #expect(sent["Authorization"] == "Bearer test-token-xyz")
+            #expect(sent["X-API-Key"] == "abc123")
+            await Hoist.reset()
+        }
+
+        @Test func etag304ReturnsCachedDocumentWithoutReDecode() async throws {
+            let url = URL(string: "https://hoist-test.invalid/etag.json")!
+            let counter = OSAllocatedUnfairLock<Int>(initialState: 0)
+            StubURLProtocol.register(url.absoluteString) { request in
+                let count = counter.withLock { value -> Int in
+                    value += 1
+                    return value
+                }
+                if count == 1 {
+                    // First fetch: serve a document with an ETag
+                    let json = #"{"schemaVersion":1,"flags":{"x":{"type":"bool","default":true}}}"#
+                    return (200, ["ETag": "\"abc-123\""], Data(json.utf8))
+                } else {
+                    // Subsequent fetch: caller MUST have sent If-None-Match
+                    #expect(request.value(forHTTPHeaderField: "If-None-Match") == "\"abc-123\"")
+                    return (304, [:], nil)
+                }
+            }
+            let restore = StubbedHoistSession.install()
+            defer { restore() }
+
+            await Hoist.reset()
+            try await Hoist.configure(
+                source: .url(url),
+                context: .anonymous
+            )
+            #expect(Hoist.bool("x") == true)
+
+            // Reconfigure with the same URL — should hit 304 path
+            try await Hoist.configure(
+                source: .url(url),
+                context: .anonymous
+            )
+            #expect(Hoist.bool("x") == true)
+            #expect(counter.withLock { $0 } == 2)
+            await Hoist.reset()
+        }
     }
 }

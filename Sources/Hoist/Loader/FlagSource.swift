@@ -5,10 +5,12 @@ import Foundation
 /// - `bundled`: a JSON file shipped inside the app bundle.
 /// - `data`: raw JSON bytes (useful for testing or pre-loaded configs).
 /// - `url`: a remote JSON endpoint, fetched once at `configure(...)` time.
-///   Pass `pollInterval:` to have Hoist refresh in the background every
-///   N seconds. Refreshes send `If-None-Match` with the cached `ETag`, so a
-///   server that returns `304 Not Modified` costs ~200 bytes per check
-///   instead of a full re-download.
+///   Pass `headers:` for auth (`["Authorization": "Bearer …"]`), and pass
+///   `pollInterval:` to have Hoist refresh in the background every N seconds.
+///   Refreshes send `If-None-Match` with the cached `ETag`, so a server that
+///   returns `304 Not Modified` costs ~200 bytes per check instead of a full
+///   re-download. Polling adds ±10% jitter and exponential backoff on
+///   consecutive failures (capped at 16× the interval).
 /// - `layered`: an ordered list of fallback sources. Layers load sequentially;
 ///   individual layer failures are tolerated, and the resulting documents are
 ///   merged per-flag-key with **later layers overriding earlier ones**. The
@@ -19,7 +21,7 @@ import Foundation
 public enum FlagSource: @unchecked Sendable {
     case bundled(filename: String, bundle: Bundle = .main)
     case data(Data)
-    case url(URL, pollInterval: TimeInterval? = nil)
+    case url(URL, headers: [String: String] = [:], pollInterval: TimeInterval? = nil)
     indirect case layered([FlagSource])
 }
 
@@ -31,7 +33,7 @@ extension FlagSource {
         switch self {
         case .bundled, .data:
             return nil
-        case .url(_, let interval):
+        case .url(_, _, let interval):
             return interval
         case .layered(let layers):
             return layers.compactMap(\.shortestPollInterval).min()
@@ -69,8 +71,8 @@ extension FlagSource {
             return try Self.loadBundled(filename: filename, bundle: bundle)
         case .data(let data):
             return try Self.decode(data)
-        case .url(let url, _):
-            return try await Self.loadRemote(url: url)
+        case .url(let url, let headers, _):
+            return try await Self.loadRemote(url: url, headers: headers)
         case .layered(let layers):
             return try await Self.loadLayered(layers: layers)
         }
@@ -111,16 +113,21 @@ extension FlagSource {
         return try decode(data)
     }
 
-    private static func loadRemote(url: URL) async throws -> FlagDocument {
+    private static func loadRemote(url: URL, headers: [String: String]) async throws -> FlagDocument {
         var request = URLRequest(url: url)
+        for (field, value) in headers {
+            request.setValue(value, forHTTPHeaderField: field)
+        }
+        // Apply ETag *after* caller headers so an `If-None-Match` caller
+        // override (rare, but possible for diagnostic flows) wins.
         let cached = Hoist.cachedRemoteDocument(for: url)
-        if let cached {
+        if let cached, request.value(forHTTPHeaderField: "If-None-Match") == nil {
             request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
         }
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await Hoist.urlSession.data(for: request)
         } catch {
             throw FlagSourceError.network(message: error.localizedDescription)
         }

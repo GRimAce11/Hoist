@@ -9,6 +9,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 (Nothing yet — next changes will land here.)
 
+## [0.4.0] — 2026-05-11
+
+A robustness pass on the v0.3 features after a brutally honest internal
+review surfaced production-readiness gaps. No new product surface beyond
+auth headers and exposure dedup — mostly making the existing polling and
+analytics pipeline behave correctly under real network conditions and
+real-app read volumes.
+
+### Added
+
+- **Polling jitter and exponential backoff.** The background refresh loop
+  on `.url(_, pollInterval:)` now sleeps for `interval × backoff × jitter`
+  where `backoff` doubles on each consecutive failure (capped at 16×) and
+  `jitter` is a fresh random in `0.9...1.1` per cycle. Prevents thundering
+  herds on minute boundaries and protects flapping endpoints. Backoff
+  resets on the first successful refresh.
+- **`Hoist.exposureDedup: ExposureDedup`.** Controls whether `onEvaluate`
+  fires on every public read (`.everyRead`) or once per unique
+  `(flagKey, userID, value, source)` until the next configure/reset
+  (`.perSession`, the new default). Important for analytics cost control —
+  a single SwiftUI body might call `Hoist.bool(...)` dozens of times per
+  render.
+- **Auth headers on `.url`.** `FlagSource.url(URL, headers: [String: String] = [:], pollInterval: TimeInterval? = nil)`.
+  Headers are applied to every fetch (initial and polled), with the cached
+  `If-None-Match` header layered on top unless the caller has already set
+  one. Enables bearer-token endpoints, signed-URL metadata, and similar
+  auth patterns.
+- **`Hoist.urlSession`** as an internal `URLSession` seam tests can swap
+  via `@testable import`. Defaults to `URLSession.shared`. Enables real
+  integration tests of the polling refresh loop, ETag short-circuit, and
+  auth-header behavior using `URLProtocol` stubs.
+
+### Changed
+
+- **Source-breaking** (third and final time for v0.3.x churn):
+  `FlagSource.url(URL, pollInterval:)` is now `FlagSource.url(URL, headers: [String: String] = [:], pollInterval: TimeInterval? = nil)`.
+  Constructor sites with `pollInterval:` and `headers:` keep working
+  because both have defaults. Pattern matchers on `case .url(let u, _)`
+  need a third placeholder: `case .url(let u, _, _)`. The v0.3.0 pattern
+  matcher form will not compile against v0.4.0.
+
+### Tests
+
+- 7 new tests: 4 cover `ExposureDedup` (per-session collapse, value-change
+  refire, `.everyRead` opt-out, configure-resets-session) and 3 cover the
+  URLProtocol-stubbed integration paths (polling actually refetches +
+  updates registry, auth headers reach the wire, ETag 304 returns the
+  cached document). 77/77 total tests passing.
+
 ## [0.3.0] — 2026-05-11
 
 ### Added
@@ -103,7 +152,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `@FeatureFlag` SwiftUI property wrapper with Observation-based reactivity.
 - Swift 6 strict concurrency, zero third-party dependencies.
 
-[Unreleased]: https://github.com/GRimAce11/Hoist/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/GRimAce11/Hoist/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/GRimAce11/Hoist/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/GRimAce11/Hoist/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/GRimAce11/Hoist/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/GRimAce11/Hoist/compare/v0.2.0...v0.2.1

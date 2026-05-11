@@ -24,6 +24,19 @@ public enum Hoist {
     static let storage = OSAllocatedUnfairLock<Storage>(initialState: .empty)
     static let overrideStore = OverrideStore()
     private static let evaluationHookLock = OSAllocatedUnfairLock<(@Sendable (EvaluationEvent) -> Void)?>(initialState: nil)
+    private static let exposureDedupLock = OSAllocatedUnfairLock<ExposureDedup>(initialState: .perSession)
+    private static let urlSessionLock = OSAllocatedUnfairLock<URLSession>(initialState: .shared)
+
+    // MARK: - URLSession (internal seam for tests; defaults to `.shared`)
+
+    /// The `URLSession` used by `FlagSource.url(...)` fetches. Defaults to
+    /// `URLSession.shared`. Internal so test code can swap in a custom
+    /// session configured with a stub `URLProtocol`. Production code should
+    /// not need to touch this.
+    static var urlSession: URLSession {
+        get { urlSessionLock.withLock { $0 } }
+        set { urlSessionLock.withLock { $0 = newValue } }
+    }
 
     // MARK: - Analytics exposure hook
 
@@ -48,6 +61,15 @@ public enum Hoist {
     public static var onEvaluate: (@Sendable (EvaluationEvent) -> Void)? {
         get { evaluationHookLock.withLock { $0 } }
         set { evaluationHookLock.withLock { $0 = newValue } }
+    }
+
+    /// Controls whether `onEvaluate` is invoked on every public read or
+    /// collapsed to one event per unique `(flagKey, userID, value, source)`
+    /// tuple until the next `configure(...)` or `reset()`. Defaults to
+    /// `.perSession` — see `ExposureDedup` for the rationale.
+    public static var exposureDedup: ExposureDedup {
+        get { exposureDedupLock.withLock { $0 } }
+        set { exposureDedupLock.withLock { $0 = newValue } }
     }
 
     private static func fire(_ event: EvaluationEvent) {
@@ -92,6 +114,9 @@ public enum Hoist {
             state.registry = registry
             state.context = context
             state.overrides = savedOverrides
+            // A new configure starts a fresh exposure session, so the next
+            // read of every flag fires the hook at least once.
+            state.exposedEvents.removeAll()
         }
         await HoistObservable.shared.tick()
         if let interval = source.shortestPollInterval, interval > 0 {
@@ -136,9 +161,19 @@ public enum Hoist {
 
     private static func startPolling(source: FlagSource, interval: TimeInterval) {
         let task = Task {
+            // `consecutiveFailures` powers an exponential backoff (capped at
+            // 16× the base interval) so a flapping endpoint doesn't get
+            // hammered every `interval` seconds during an outage. Resets to
+            // zero on the first successful refresh.
+            var consecutiveFailures = 0
+            // ±10% randomized jitter keeps a million apps from aligning to
+            // exact minute boundaries and thundering-herding the origin.
             while !Task.isCancelled {
+                let backoff = min(pow(2.0, Double(consecutiveFailures)), 16.0)
+                let jitter = Double.random(in: 0.9...1.1)
+                let delay = interval * backoff * jitter
                 do {
-                    try await Task.sleep(for: .seconds(interval))
+                    try await Task.sleep(for: .seconds(delay))
                 } catch {
                     return
                 }
@@ -149,8 +184,9 @@ public enum Hoist {
                     let registry = FlagRegistry(document: document)
                     storage.withLock { $0.registry = registry }
                     await HoistObservable.shared.tick()
+                    consecutiveFailures = 0
                 } catch {
-                    // Refresh failure is non-fatal; try again on the next tick.
+                    consecutiveFailures = min(consecutiveFailures + 1, 4)
                 }
             }
         }
@@ -215,8 +251,19 @@ public enum Hoist {
     }
 
     private static func emit(key: String, value: AttributeValue, source: EvaluationSource) {
+        // Cheap nil-hook check first — most apps never set `onEvaluate`, so
+        // we avoid touching the storage lock entirely on the hot path.
+        guard let hook = evaluationHookLock.withLock({ $0 }) else { return }
+        let policy = exposureDedupLock.withLock { $0 }
         let userID = storage.withLock { $0.context.userID }
-        fire(EvaluationEvent(flagKey: key, value: value, source: source, userID: userID))
+        if policy == .perSession {
+            let dedupKey = DedupKey(flagKey: key, userID: userID, value: value, source: source)
+            let shouldFire = storage.withLock { state in
+                state.exposedEvents.insert(dedupKey).inserted
+            }
+            guard shouldFire else { return }
+        }
+        hook(EvaluationEvent(flagKey: key, value: value, source: source, userID: userID))
     }
 
     // MARK: - Introspection (mainly for tests / debug UIs)
@@ -269,6 +316,16 @@ struct CachedRemoteDocument: Sendable {
     let document: FlagDocument
 }
 
+/// Identifies a unique flag exposure for `ExposureDedup.perSession`. Two
+/// reads produce the same key when the flag, user, served value, and source
+/// all match, so the hook only fires when one of them changes.
+struct DedupKey: Hashable, Sendable {
+    let flagKey: String
+    let userID: String?
+    let value: AttributeValue
+    let source: EvaluationSource
+}
+
 /// Thread-protected mutable state held by `Hoist`.
 struct Storage: Sendable {
     var registry: FlagRegistry
@@ -276,12 +333,14 @@ struct Storage: Sendable {
     var overrides: [String: AttributeValue]
     var pollingTask: Task<Void, Never>?
     var remoteCache: [URL: CachedRemoteDocument]
+    var exposedEvents: Set<DedupKey>
 
     static let empty = Storage(
         registry: .empty,
         context: .anonymous,
         overrides: [:],
         pollingTask: nil,
-        remoteCache: [:]
+        remoteCache: [:],
+        exposedEvents: []
     )
 }
