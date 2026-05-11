@@ -18,6 +18,7 @@ public enum FlagSourceError: Error, LocalizedError, Equatable {
     case fileNotFound(filename: String)
     case decoding(message: String)
     case network(message: String)
+    case unsupportedSchemaVersion(found: Int, supported: [Int])
 
     public var errorDescription: String? {
         switch self {
@@ -27,6 +28,9 @@ public enum FlagSourceError: Error, LocalizedError, Equatable {
             return "Hoist: failed to decode flag configuration — \(message)"
         case .network(let message):
             return "Hoist: failed to fetch remote flag configuration — \(message)"
+        case .unsupportedSchemaVersion(let found, let supported):
+            let supportedList = supported.sorted().map(String.init).joined(separator: ", ")
+            return "Hoist: flag document declares schemaVersion \(found), but this build of Hoist only supports [\(supportedList)]. Upgrade Hoist or downgrade the document."
         }
     }
 }
@@ -64,11 +68,20 @@ extension FlagSource {
     }
 
     private static func decode(_ data: Data) throws -> FlagDocument {
+        let document: FlagDocument
         do {
-            return try JSONDecoder().decode(FlagDocument.self, from: data)
+            document = try JSONDecoder().decode(FlagDocument.self, from: data)
         } catch {
             throw FlagSourceError.decoding(message: String(describing: error))
         }
+        let version = document.resolvedSchemaVersion
+        guard Hoist.supportedSchemaVersions.contains(version) else {
+            throw FlagSourceError.unsupportedSchemaVersion(
+                found: version,
+                supported: Array(Hoist.supportedSchemaVersions)
+            )
+        }
+        return document
     }
 
     private static func splitExtension(_ filename: String) -> (name: String, ext: String) {

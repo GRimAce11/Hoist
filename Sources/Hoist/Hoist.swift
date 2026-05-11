@@ -24,6 +24,18 @@ public enum Hoist {
     static let storage = OSAllocatedUnfairLock<Storage>(initialState: .empty)
     static let overrideStore = OverrideStore()
 
+    // MARK: - Schema versioning
+
+    /// The schema version that new flag documents should declare. Files that
+    /// omit `schemaVersion` are treated as version `1` for backwards
+    /// compatibility with pre-0.2.2 documents.
+    public static let currentSchemaVersion: Int = 1
+
+    /// All schema versions this build of Hoist can load. Documents that
+    /// declare a `schemaVersion` outside this set fail to load with
+    /// `FlagSourceError.unsupportedSchemaVersion`.
+    public static let supportedSchemaVersions: Set<Int> = [1]
+
     // MARK: - Configuration
 
     /// Loads the flag document from `source` and stores `context` for evaluation.

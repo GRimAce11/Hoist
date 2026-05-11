@@ -129,4 +129,52 @@ struct LoaderTests {
             try await source.load()
         }
     }
+
+    // MARK: - Schema versioning
+
+    @Test func documentWithoutSchemaVersionLoadsAsV1() async throws {
+        let json = """
+        {
+          "flags": {
+            "x": { "type": "bool", "default": false }
+          }
+        }
+        """
+        let doc = try await FlagSource.data(Data(json.utf8)).load()
+        #expect(doc.resolvedSchemaVersion == 1)
+        #expect(doc.flags["x"]?.defaultValue == .bool(false))
+    }
+
+    @Test func documentWithSupportedSchemaVersionLoads() async throws {
+        let json = """
+        {
+          "schemaVersion": 1,
+          "flags": {
+            "x": { "type": "bool", "default": true }
+          }
+        }
+        """
+        let doc = try await FlagSource.data(Data(json.utf8)).load()
+        #expect(doc.schemaVersion == 1)
+        #expect(doc.flags["x"]?.defaultValue == .bool(true))
+    }
+
+    @Test func documentWithUnsupportedSchemaVersionThrows() async {
+        let json = """
+        {
+          "schemaVersion": 99,
+          "flags": {
+            "x": { "type": "bool", "default": false }
+          }
+        }
+        """
+        await #expect {
+            try await FlagSource.data(Data(json.utf8)).load()
+        } throws: { error in
+            guard case FlagSourceError.unsupportedSchemaVersion(let found, _) = error else {
+                return false
+            }
+            return found == 99
+        }
+    }
 }

@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "flags": {
     "new_checkout": {
       "type": "bool",

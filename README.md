@@ -78,6 +78,7 @@ Or in Xcode: **File → Add Package Dependencies…** and paste
 
 ```json
 {
+  "schemaVersion": 1,
   "flags": {
     "new_checkout": {
       "type": "bool",
@@ -97,6 +98,10 @@ Or in Xcode: **File → Add Package Dependencies…** and paste
   }
 }
 ```
+
+> `schemaVersion` is optional today — documents without it are treated as v1.
+> Declaring it explicitly is recommended so future format bumps fail loudly
+> instead of silently misbehaving.
 
 ### 2. Configure once at launch
 
@@ -341,6 +346,7 @@ A complete reference app and a comprehensive sample `flags.json` live under [`Ex
 - [x] `HoistDebugView` debug overlay
 - [x] DocC documentation catalog
 - [x] Multi-platform CI
+- [x] Versioned document schema (`schemaVersion`) with explicit upgrade errors
 - [ ] **v0.3** — Remote sync with polling + ETag caching
 - [ ] **v0.3** — Layered sources (`.bundled` defaults, `.url` overrides)
 - [ ] **v0.3** — Analytics exposure hook for A/B test attribution

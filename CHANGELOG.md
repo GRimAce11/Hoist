@@ -12,6 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Layered flag sources (`.layered([.bundled(...), .url(...)])`).
 - Analytics exposure hook (`Hoist.onEvaluate`) for A/B-test attribution.
 
+## [0.2.2] — 2026-05-11
+
+### Added
+- Versioned flag-document schema. `FlagDocument` now decodes an optional
+  top-level `schemaVersion: Int`. Documents that omit it are treated as
+  version `1` for backwards compatibility; documents that declare a value
+  outside `Hoist.supportedSchemaVersions` fail to load with the new
+  `FlagSourceError.unsupportedSchemaVersion(found:supported:)`.
+- `Hoist.currentSchemaVersion` and `Hoist.supportedSchemaVersions` constants
+  so apps can pin or surface the version they target.
+- `Examples/flags.json` and the test fixture now declare `"schemaVersion": 1`
+  as the recommended shape for new documents.
+
 ## [0.2.1] — 2026-05-07
 
 ### Added
@@ -63,7 +76,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `@FeatureFlag` SwiftUI property wrapper with Observation-based reactivity.
 - Swift 6 strict concurrency, zero third-party dependencies.
 
-[Unreleased]: https://github.com/GRimAce11/Hoist/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/GRimAce11/Hoist/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/GRimAce11/Hoist/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/GRimAce11/Hoist/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/GRimAce11/Hoist/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/GRimAce11/Hoist/releases/tag/v0.1.0
