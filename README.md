@@ -457,11 +457,19 @@ an issue if you'd like to move something up.
 - [x] Polling jitter + exponential backoff on failures — v0.4
 - [x] Exposure dedup (`Hoist.exposureDedup`) defaulting to per-session — v0.4
 - [x] Auth headers on `.url(...)` sources for bearer-token endpoints — v0.4
-- [ ] **v0.5** — `hoist lint` CLI for `flags.json` validation
-- [ ] **v0.5** — Named segments (reusable condition sets)
-- [ ] **v1.0** — Flag prerequisites + scheduled (date-gated) rules
-- [ ] **v1.0** — Server-Sent Events transport for sub-second updates
-- [ ] **v1.0** — Optional reference server (Vapor) for self-hosting
+### Beyond v0.4 — demand-driven
+
+v0.4 covers what most apps need from a feature flag library. The items below
+are tracked but **not on a timeline** — they'll be built when someone files
+an issue saying "I need this to adopt Hoist," or when a contributor opens a
+PR. If one of these blocks you, opening a GitHub issue is the fastest way to
+move it up:
+
+- [ ] `hoist lint` CLI for `flags.json` validation
+- [ ] Named segments (reusable condition sets across flags)
+- [ ] Flag prerequisites + scheduled (date-gated) rules
+- [ ] Server-Sent Events transport for sub-second propagation
+- [ ] Optional reference server (Vapor) for self-hosting
 
 ## Contributing
 
