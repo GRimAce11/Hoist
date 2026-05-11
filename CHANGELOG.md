@@ -13,10 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-key overlay merge — later layers override earlier per flag key,
   individual layer failures are tolerated, and all-fail rethrows the last
   error. Typical shape: `.layered([.bundled("defaults.json"), .url(remote)])`.
+- **Added** background polling on `FlagSource.url`: payload now takes a
+  `pollInterval: TimeInterval?` and Hoist spawns a cancellable refresh task
+  when the value is non-nil. Each refresh sends `If-None-Match` with the
+  cached `ETag` and short-circuits on a `304 Not Modified`. Polling is
+  scoped per source: a `.url` nested inside `.layered(...)` triggers a
+  refresh of the whole chain at the shortest declared interval.
+  **Source-breaking** for pattern matchers on `case .url(let u)` — update to
+  `case .url(let u, _)`. Existing call sites that construct `.url(url)`
+  continue to compile because `pollInterval` defaults to `nil`.
 
 ### Planned for 0.3.0
 
-- Remote sync with polling + ETag caching for `FlagSource.url(...)`.
 - Analytics exposure hook (`Hoist.onEvaluate`) for A/B-test attribution.
 
 ## [0.2.2] — 2026-05-11

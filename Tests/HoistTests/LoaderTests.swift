@@ -246,4 +246,38 @@ struct LoaderTests {
             try await source.load()
         }
     }
+
+    // MARK: - Poll interval scanning
+
+    @Test func sourceWithoutPollIntervalReportsNoPolling() {
+        let url = URL(string: "https://example.com/flags.json")!
+        #expect(FlagSource.bundled(filename: "x.json").shortestPollInterval == nil)
+        #expect(FlagSource.data(Data()).shortestPollInterval == nil)
+        #expect(FlagSource.url(url).shortestPollInterval == nil)
+    }
+
+    @Test func urlSourceWithPollIntervalReportsInterval() {
+        let url = URL(string: "https://example.com/flags.json")!
+        #expect(FlagSource.url(url, pollInterval: 60).shortestPollInterval == 60)
+    }
+
+    @Test func layeredPicksShortestPollInterval() {
+        let a = URL(string: "https://example.com/a")!
+        let b = URL(string: "https://example.com/b")!
+        let source = FlagSource.layered([
+            .bundled(filename: "x.json"),
+            .url(a, pollInterval: 120),
+            .url(b, pollInterval: 30),
+        ])
+        #expect(source.shortestPollInterval == 30)
+    }
+
+    @Test func layeredWithoutAnyPollingReportsNil() {
+        let a = URL(string: "https://example.com/a")!
+        let source = FlagSource.layered([
+            .bundled(filename: "x.json"),
+            .url(a),
+        ])
+        #expect(source.shortestPollInterval == nil)
+    }
 }

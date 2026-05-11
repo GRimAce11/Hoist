@@ -196,6 +196,33 @@ Bucketing uses `SHA-256("<flagKey>:<userID>")` reduced modulo 100. The same user
 
 A `userID` is required for `rollout` and `split` rules. Use a stable per-install UUID in Keychain if you don't have a logged-in user.
 
+### Remote sources and background refresh
+
+`FlagSource.url(_:pollInterval:)` fetches a JSON document over HTTPS. Pass a
+`pollInterval` to keep it fresh: Hoist spawns a cancellable background task
+that refetches every N seconds, sending `If-None-Match` with the cached
+`ETag` so an unchanged document costs ~200 bytes per check.
+
+```swift
+try await Hoist.configure(
+    source: .layered([
+        .bundled(filename: "flags.json"),                               // floor
+        .url(URL(string: "https://flags.acme.com/ios.json")!,
+             pollInterval: 60),                                          // override + refresh
+    ]),
+    context: UserContext(userID: user.id, attributes: [...])
+)
+```
+
+- Bundled defaults are always available offline, so reads keep working when
+  the network is down or your endpoint is 5xx-ing.
+- The remote layer fills in / overrides keys per `schemaVersion` merge rules.
+- Polling stops automatically on the next `Hoist.configure(...)` or
+  `Hoist.reset()`.
+- Have your endpoint set `Cache-Control: no-cache, must-revalidate` and emit
+  a strong `ETag` to get the 304 short-circuit. CDNs like Cloudflare and
+  Fastly do this for static files automatically.
+
 ### Runtime overrides
 
 Force any flag to a specific value, bypassing rule evaluation. Persisted to a dedicated `UserDefaults` suite (`com.hoist.overrides`), so overrides survive app launches.
@@ -339,13 +366,6 @@ A complete reference app and a comprehensive sample `flags.json` live under [`Ex
 
 Hoist is a small, focused library. Things it deliberately does **not** do yet:
 
-- **No background refresh.** `Hoist.configure(...)` loads the document once.
-  To pick up server-side changes mid-session, call `configure(...)` again
-  yourself — typically on app foreground or via your own timer. Polling +
-  ETag caching is planned for v0.3.
-- **No layered fallback.** If `FlagSource.url(...)` fails, reads return the
-  caller-supplied defaults. There is no automatic fallback to a bundled
-  file yet. Planned for v0.3.
 - **No exposure events.** Variant assignments are not reported anywhere by
   default, so A/B-test attribution requires your own glue code.
   `Hoist.onEvaluate` is planned for v0.3.
@@ -372,7 +392,7 @@ or open an issue and we'll see if it can move up.
 - [x] Multi-platform CI
 - [x] Versioned document schema (`schemaVersion`) with explicit upgrade errors
 - [x] Layered sources (`.layered([.bundled(...), .url(...)])`) — in progress on `main`
-- [ ] **v0.3** — Remote sync with polling + ETag caching
+- [x] Background polling + ETag caching on `.url` sources — in progress on `main`
 - [ ] **v0.3** — Analytics exposure hook for A/B test attribution
 - [ ] **v1.0** — CLI for linting and managing `flags.json`
 - [ ] **v1.0** — Server-Sent Events transport for sub-second updates

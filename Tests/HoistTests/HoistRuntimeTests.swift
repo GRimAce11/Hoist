@@ -217,4 +217,83 @@ struct HoistRuntime {
             #expect(Hoist.overrides.isEmpty)
         }
     }
+
+    // MARK: - Polling lifecycle
+
+    @Suite("Polling")
+    struct Polling {
+
+        @Test func configureWithoutPollIntervalDoesNotSpawnTask() async throws {
+            try await HoistRuntime.freshConfigure(context: .anonymous)
+            let hasTask = Hoist.storage.withLock { $0.pollingTask != nil }
+            #expect(hasTask == false)
+        }
+
+        @Test func configureWithPollIntervalSpawnsTask() async throws {
+            let url = try #require(Bundle.module.url(forResource: "sample-flags", withExtension: "json"))
+            await Hoist.reset()
+            try await Hoist.configure(
+                source: .url(url, pollInterval: 60),
+                context: .anonymous
+            )
+            let task = Hoist.storage.withLock { $0.pollingTask }
+            #expect(task != nil)
+            #expect(task?.isCancelled == false)
+            await Hoist.reset()
+        }
+
+        @Test func resetCancelsPollingTask() async throws {
+            let url = try #require(Bundle.module.url(forResource: "sample-flags", withExtension: "json"))
+            await Hoist.reset()
+            try await Hoist.configure(
+                source: .url(url, pollInterval: 60),
+                context: .anonymous
+            )
+            let task = Hoist.storage.withLock { $0.pollingTask }
+            #expect(task != nil)
+
+            await Hoist.reset()
+
+            #expect(task?.isCancelled == true)
+            let cleared = Hoist.storage.withLock { $0.pollingTask == nil }
+            #expect(cleared == true)
+        }
+
+        @Test func secondConfigureCancelsPriorPollingTask() async throws {
+            let url = try #require(Bundle.module.url(forResource: "sample-flags", withExtension: "json"))
+            await Hoist.reset()
+            try await Hoist.configure(
+                source: .url(url, pollInterval: 60),
+                context: .anonymous
+            )
+            let firstTask = Hoist.storage.withLock { $0.pollingTask }
+
+            try await Hoist.configure(
+                source: .url(url, pollInterval: 30),
+                context: .anonymous
+            )
+            let secondTask = Hoist.storage.withLock { $0.pollingTask }
+
+            #expect(firstTask?.isCancelled == true)
+            #expect(secondTask != nil)
+            #expect(secondTask?.isCancelled == false)
+            await Hoist.reset()
+        }
+
+        @Test func layeredWithPollingSpawnsTask() async throws {
+            let url = try #require(Bundle.module.url(forResource: "sample-flags", withExtension: "json"))
+            await Hoist.reset()
+            try await Hoist.configure(
+                source: .layered([
+                    .bundled(filename: "sample-flags.json", bundle: .module),
+                    .url(url, pollInterval: 30),
+                ]),
+                context: .anonymous
+            )
+            let task = Hoist.storage.withLock { $0.pollingTask }
+            #expect(task != nil)
+            #expect(task?.isCancelled == false)
+            await Hoist.reset()
+        }
+    }
 }

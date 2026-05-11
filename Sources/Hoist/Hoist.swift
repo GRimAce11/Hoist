@@ -41,9 +41,16 @@ public enum Hoist {
     /// Loads the flag document from `source` and stores `context` for evaluation.
     /// Saved overrides (if any) are restored from disk.
     ///
+    /// If the source contains a `.url(_, pollInterval: X)` case (directly or
+    /// nested inside `.layered(...)`), Hoist starts a background task that
+    /// re-loads the source every `X` seconds, sending the cached `ETag` via
+    /// `If-None-Match` to avoid redundant downloads.
+    ///
     /// Call this once at app launch. May be called again to reload — listeners
-    /// observing `HoistObservable.shared` will be notified.
+    /// observing `HoistObservable.shared` will be notified. Concurrent calls
+    /// are not supported.
     public static func configure(source: FlagSource, context: UserContext) async throws {
+        cancelPolling()
         let document = try await source.load()
         let registry = FlagRegistry(document: document)
         let savedOverrides = overrideStore.load()
@@ -53,6 +60,9 @@ public enum Hoist {
             state.overrides = savedOverrides
         }
         await HoistObservable.shared.tick()
+        if let interval = source.shortestPollInterval, interval > 0 {
+            startPolling(source: source, interval: interval)
+        }
     }
 
     /// Updates only the user context (e.g. on login/logout) without reloading flags.
@@ -63,9 +73,54 @@ public enum Hoist {
 
     /// Resets all state, including persisted overrides. Mostly useful in tests.
     public static func reset() async {
-        storage.withLock { $0 = .empty }
+        storage.withLock { state in
+            state.pollingTask?.cancel()
+            state = .empty
+        }
         overrideStore.clearAll()
         await HoistObservable.shared.tick()
+    }
+
+    // MARK: - Remote cache (internal — used by FlagSource.loadRemote)
+
+    static func cachedRemoteDocument(for url: URL) -> CachedRemoteDocument? {
+        storage.withLock { $0.remoteCache[url] }
+    }
+
+    static func setCachedRemoteDocument(_ doc: CachedRemoteDocument, for url: URL) {
+        storage.withLock { $0.remoteCache[url] = doc }
+    }
+
+    // MARK: - Polling (internal)
+
+    private static func cancelPolling() {
+        storage.withLock { state in
+            state.pollingTask?.cancel()
+            state.pollingTask = nil
+        }
+    }
+
+    private static func startPolling(source: FlagSource, interval: TimeInterval) {
+        let task = Task {
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(interval))
+                } catch {
+                    return
+                }
+                if Task.isCancelled { return }
+                do {
+                    let document = try await source.load()
+                    if Task.isCancelled { return }
+                    let registry = FlagRegistry(document: document)
+                    storage.withLock { $0.registry = registry }
+                    await HoistObservable.shared.tick()
+                } catch {
+                    // Refresh failure is non-fatal; try again on the next tick.
+                }
+            }
+        }
+        storage.withLock { $0.pollingTask = task }
     }
 
     // MARK: - Reads
@@ -129,11 +184,27 @@ public enum Hoist {
     }
 }
 
+/// A remote flag document held alongside the `ETag` it was served with, so
+/// the next refresh can ask the server "still the same?" via `If-None-Match`
+/// and short-circuit on a `304 Not Modified` response.
+struct CachedRemoteDocument: Sendable {
+    let etag: String
+    let document: FlagDocument
+}
+
 /// Thread-protected mutable state held by `Hoist`.
 struct Storage: Sendable {
     var registry: FlagRegistry
     var context: UserContext
     var overrides: [String: AttributeValue]
+    var pollingTask: Task<Void, Never>?
+    var remoteCache: [URL: CachedRemoteDocument]
 
-    static let empty = Storage(registry: .empty, context: .anonymous, overrides: [:])
+    static let empty = Storage(
+        registry: .empty,
+        context: .anonymous,
+        overrides: [:],
+        pollingTask: nil,
+        remoteCache: [:]
+    )
 }

@@ -4,21 +4,39 @@ import Foundation
 ///
 /// - `bundled`: a JSON file shipped inside the app bundle.
 /// - `data`: raw JSON bytes (useful for testing or pre-loaded configs).
-/// - `url`: a remote JSON endpoint, fetched once via `URLSession`. Hoist does
-///   not poll — the document is loaded a single time per `configure(...)` call.
-///   For background refresh, schedule your own `Hoist.configure(...)` calls.
+/// - `url`: a remote JSON endpoint, fetched once at `configure(...)` time.
+///   Pass `pollInterval:` to have Hoist refresh in the background every
+///   N seconds. Refreshes send `If-None-Match` with the cached `ETag`, so a
+///   server that returns `304 Not Modified` costs ~200 bytes per check
+///   instead of a full re-download.
 /// - `layered`: an ordered list of fallback sources. Layers load sequentially;
 ///   individual layer failures are tolerated, and the resulting documents are
 ///   merged per-flag-key with **later layers overriding earlier ones**. The
-///   common shape is `.layered([.bundled("defaults.json"), .url(remote)])`:
-///   bundled defaults are the floor, the remote document fills in or
-///   overrides per key. If every layer fails, the error from the last
-///   attempted layer is rethrown.
+///   common shape is `.layered([.bundled("defaults.json"), .url(remote, pollInterval: 60)])`:
+///   bundled defaults are the floor, the remote document fills in or overrides
+///   per key and refreshes itself in the background. If every layer fails on
+///   the initial load, the error from the last attempted layer is rethrown.
 public enum FlagSource: @unchecked Sendable {
     case bundled(filename: String, bundle: Bundle = .main)
     case data(Data)
-    case url(URL)
+    case url(URL, pollInterval: TimeInterval? = nil)
     indirect case layered([FlagSource])
+}
+
+extension FlagSource {
+    /// The shortest non-nil `pollInterval` declared by any `.url(...)` case
+    /// inside this source, recursing into `.layered`. `nil` means "no
+    /// background polling is configured."
+    var shortestPollInterval: TimeInterval? {
+        switch self {
+        case .bundled, .data:
+            return nil
+        case .url(_, let interval):
+            return interval
+        case .layered(let layers):
+            return layers.compactMap(\.shortestPollInterval).min()
+        }
+    }
 }
 
 /// Errors that can be thrown while loading a flag configuration.
@@ -51,7 +69,7 @@ extension FlagSource {
             return try Self.loadBundled(filename: filename, bundle: bundle)
         case .data(let data):
             return try Self.decode(data)
-        case .url(let url):
+        case .url(let url, _):
             return try await Self.loadRemote(url: url)
         case .layered(let layers):
             return try await Self.loadLayered(layers: layers)
@@ -94,13 +112,33 @@ extension FlagSource {
     }
 
     private static func loadRemote(url: URL) async throws -> FlagDocument {
+        var request = URLRequest(url: url)
+        let cached = Hoist.cachedRemoteDocument(for: url)
+        if let cached {
+            request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
+        }
         let data: Data
+        let response: URLResponse
         do {
-            (data, _) = try await URLSession.shared.data(from: url)
+            (data, response) = try await URLSession.shared.data(for: request)
         } catch {
             throw FlagSourceError.network(message: error.localizedDescription)
         }
-        return try decode(data)
+        if let http = response as? HTTPURLResponse, http.statusCode == 304 {
+            guard let cached else {
+                throw FlagSourceError.network(message: "received HTTP 304 but no document was cached for \(url.absoluteString)")
+            }
+            return cached.document
+        }
+        let document = try decode(data)
+        if let http = response as? HTTPURLResponse,
+           let etag = http.value(forHTTPHeaderField: "Etag") {
+            Hoist.setCachedRemoteDocument(
+                CachedRemoteDocument(etag: etag, document: document),
+                for: url
+            )
+        }
+        return document
     }
 
     private static func decode(_ data: Data) throws -> FlagDocument {
