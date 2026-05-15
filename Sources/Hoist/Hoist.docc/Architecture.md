@@ -57,6 +57,8 @@ Three rule kinds are supported:
 - **Rollout** — bucketing key is `"<flagKey>:<userID>"`, hashed with SHA-256. The first 8 bytes of the digest are interpreted as a big-endian `UInt64` and reduced modulo 100. The same `(flagKey, userID)` pair always lands in the same bucket, so users don't flicker between variants on relaunch.
 - **Split** — same hash, reduced modulo the sum of weights. The bucket is then walked through the variant array to pick a winner. Only meaningful for string flags.
 
+Both `rollout` and `split` may also carry an optional `conditions` array. When present, the conditions are AND-evaluated first; only matching users are bucketed, and a failed gate falls through to the next rule. The bucketing key remains `"<flagKey>:<userID>"` — gating attributes are not mixed into the hash, so a user's bucket is stable across attribute changes.
+
 Both `rollout` and `split` require a `userID`. Without one they fall through.
 
 ## SwiftUI bridge

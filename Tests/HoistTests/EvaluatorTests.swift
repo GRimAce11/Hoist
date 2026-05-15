@@ -262,4 +262,106 @@ struct EvaluatorTests {
         )
         #expect(Evaluator.evaluate(flag, context: .anonymous) == .string("grid"))
     }
+
+    // MARK: - Gated rollout (if + rollout in one rule)
+
+    @Test func gatedRolloutAppliesOnlyWhenConditionsMatch() {
+        // 100% rollout for US users; everyone else falls through to default.
+        let flag = Flag(
+            key: "x", type: .bool, defaultValue: .bool(false),
+            rules: [
+                .rollout(
+                    conditions: [Condition(attribute: "country", operator: .eq(.string("US")))],
+                    percentage: 100,
+                    value: .bool(true)
+                )
+            ]
+        )
+        let usUser = UserContext(userID: "u1", attributes: ["country": .string("US")])
+        #expect(Evaluator.evaluate(flag, context: usUser) == .bool(true))
+
+        let deUser = UserContext(userID: "u1", attributes: ["country": .string("DE")])
+        #expect(Evaluator.evaluate(flag, context: deUser) == .bool(false))
+    }
+
+    @Test func gatedRolloutFallsThroughWhenGateFails() {
+        // Gate fails → second rule fires.
+        let flag = Flag(
+            key: "x", type: .string, defaultValue: .string("z"),
+            rules: [
+                .rollout(
+                    conditions: [Condition(attribute: "country", operator: .eq(.string("US")))],
+                    percentage: 100,
+                    value: .string("a")
+                ),
+                .condition(conditions: [], value: .string("b")),   // catch-all
+            ]
+        )
+        let context = UserContext(userID: "u1", attributes: ["country": .string("DE")])
+        #expect(Evaluator.evaluate(flag, context: context) == .string("b"))
+    }
+
+    @Test func gatedRolloutSkippedWithoutUserIDEvenWhenGateMatches() {
+        // Gate matches but no userID → can't bucket → fall through.
+        let flag = Flag(
+            key: "x", type: .bool, defaultValue: .bool(false),
+            rules: [
+                .rollout(
+                    conditions: [Condition(attribute: "country", operator: .eq(.string("US")))],
+                    percentage: 100,
+                    value: .bool(true)
+                )
+            ]
+        )
+        let context = UserContext(userID: nil, attributes: ["country": .string("US")])
+        #expect(Evaluator.evaluate(flag, context: context) == .bool(false))
+    }
+
+    @Test func gatedRolloutDistributionWithinGatedSubset() {
+        // 25% rollout, restricted to US. Across 10k US users we expect ~2,500 hits;
+        // non-US users should always miss regardless of their bucket.
+        let flag = Flag(
+            key: "marquee", type: .bool, defaultValue: .bool(false),
+            rules: [
+                .rollout(
+                    conditions: [Condition(attribute: "country", operator: .eq(.string("US")))],
+                    percentage: 25,
+                    value: .bool(true)
+                )
+            ]
+        )
+        var usHits = 0
+        var deHits = 0
+        for i in 0..<10_000 {
+            let us = UserContext(userID: "user_\(i)", attributes: ["country": .string("US")])
+            let de = UserContext(userID: "user_\(i)", attributes: ["country": .string("DE")])
+            if Evaluator.evaluate(flag, context: us) == .bool(true) { usHits += 1 }
+            if Evaluator.evaluate(flag, context: de) == .bool(true) { deHits += 1 }
+        }
+        #expect((2200...2800).contains(usHits), "US hits was \(usHits), expected ~2500")
+        #expect(deHits == 0, "DE users should never hit a US-gated rollout")
+    }
+
+    // MARK: - Gated split
+
+    @Test func gatedSplitAppliesOnlyWhenConditionsMatch() {
+        let flag = Flag(
+            key: "layout", type: .string, defaultValue: .string("grid"),
+            rules: [
+                .split(
+                    conditions: [Condition(attribute: "plan", operator: .eq(.string("pro")))],
+                    variants: [
+                        SplitVariant(value: "a", weight: 1),
+                        SplitVariant(value: "b", weight: 1),
+                    ]
+                )
+            ]
+        )
+        let pro = UserContext(userID: "u1", attributes: ["plan": .string("pro")])
+        let proResult = Evaluator.evaluate(flag, context: pro)
+        #expect(proResult == .string("a") || proResult == .string("b"))
+
+        let free = UserContext(userID: "u1", attributes: ["plan": .string("free")])
+        #expect(Evaluator.evaluate(flag, context: free) == .string("grid"))
+    }
 }

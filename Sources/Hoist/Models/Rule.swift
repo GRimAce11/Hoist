@@ -6,11 +6,25 @@ public enum Rule: Sendable, Equatable {
     case condition(conditions: [Condition], value: AttributeValue)
 
     /// Returns `value` if `hash(flagKey + userID) % 100 < percentage`.
-    case rollout(percentage: Int, value: AttributeValue)
+    /// If `conditions` is non-empty, they must all match before the user is bucketed.
+    case rollout(conditions: [Condition], percentage: Int, value: AttributeValue)
 
     /// Deterministically picks one variant by weight. Variant string becomes the value.
     /// Only meaningful for string flags.
-    case split(variants: [SplitVariant])
+    /// If `conditions` is non-empty, they must all match before the user is bucketed.
+    case split(conditions: [Condition], variants: [SplitVariant])
+}
+
+extension Rule {
+    /// Ungated rollout — sugar for `.rollout(conditions: [], ...)`.
+    public static func rollout(percentage: Int, value: AttributeValue) -> Rule {
+        .rollout(conditions: [], percentage: percentage, value: value)
+    }
+
+    /// Ungated split — sugar for `.split(conditions: [], ...)`.
+    public static func split(variants: [SplitVariant]) -> Rule {
+        .split(conditions: [], variants: variants)
+    }
 }
 
 /// One bucket in a `split` rule.
@@ -35,7 +49,11 @@ extension Rule: Decodable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        // 1. Split rule
+        let conditions: [Condition] = container.contains(.if)
+            ? try Self.decodeConditions(from: container)
+            : []
+
+        // 1. Split rule (optionally gated by `if`).
         if container.contains(.split) {
             let weights = try container.decode([String: Int].self, forKey: .split)
             let variants = weights
@@ -53,11 +71,11 @@ extension Rule: Decodable {
                     debugDescription: "split weights must be non-negative"
                 )
             }
-            self = .split(variants: variants)
+            self = .split(conditions: conditions, variants: variants)
             return
         }
 
-        // 2. Rollout rule
+        // 2. Rollout rule (optionally gated by `if`).
         if container.contains(.rollout) {
             let percentage = try container.decode(Int.self, forKey: .rollout)
             guard (0...100).contains(percentage) else {
@@ -67,16 +85,12 @@ extension Rule: Decodable {
                 )
             }
             let value = try container.decode(AttributeValue.self, forKey: .value)
-            self = .rollout(percentage: percentage, value: value)
+            self = .rollout(conditions: conditions, percentage: percentage, value: value)
             return
         }
 
-        // 3. Condition rule
+        // 3. Plain condition rule — `if` + `value`, no rollout/split.
         if container.contains(.if) {
-            let predicates = try container.decode([String: ConditionOperatorBox].self, forKey: .if)
-            let conditions = predicates
-                .map { Condition(attribute: $0.key, operator: $0.value.value) }
-                .sorted { $0.attribute < $1.attribute }   // stable order for tests
             let value = try container.decode(AttributeValue.self, forKey: .value)
             self = .condition(conditions: conditions, value: value)
             return
@@ -86,6 +100,15 @@ extension Rule: Decodable {
             forKey: .if, in: container,
             debugDescription: "Rule must contain one of: 'if', 'rollout', 'split'"
         )
+    }
+
+    private static func decodeConditions(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> [Condition] {
+        let predicates = try container.decode([String: ConditionOperatorBox].self, forKey: .if)
+        return predicates
+            .map { Condition(attribute: $0.key, operator: $0.value.value) }
+            .sorted { $0.attribute < $1.attribute }   // stable order for tests
     }
 }
 

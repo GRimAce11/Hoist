@@ -37,13 +37,15 @@ enum Evaluator {
         case .condition(let conditions, let value):
             return matchAll(conditions, in: context) ? value : nil
 
-        case .rollout(let percentage, let value):
+        case .rollout(let conditions, let percentage, let value):
+            guard matchAll(conditions, in: context) else { return nil }
             guard let userID = context.userID else { return nil }
             return Bucketer.percentile(flagKey: flag.key, userID: userID) < percentage
                 ? value
                 : nil
 
-        case .split(let variants):
+        case .split(let conditions, let variants):
+            guard matchAll(conditions, in: context) else { return nil }
             guard let userID = context.userID else { return nil }
             let total = variants.reduce(0) { $0 + $1.weight }
             guard total > 0 else { return nil }

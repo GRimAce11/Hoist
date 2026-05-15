@@ -6,8 +6,7 @@
       "default": false,
       "rules": [
         { "if": { "isInternal": true }, "value": true },
-        { "if": { "country": { "in": ["US", "CA"] } }, "value": true },
-        { "rollout": 25, "value": true }
+        { "if": { "country": { "in": ["US", "CA"] } }, "rollout": 25, "value": true }
       ]
     },
 

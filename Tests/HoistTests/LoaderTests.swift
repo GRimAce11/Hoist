@@ -48,7 +48,8 @@ struct LoaderTests {
         let string = try #require(doc.flags["a_string"])
         #expect(string.type == .string)
         #expect(string.rules.count == 1)
-        if case .split(let variants) = string.rules[0] {
+        if case .split(let conditions, let variants) = string.rules[0] {
+            #expect(conditions.isEmpty)
             #expect(variants.count == 2)
             #expect(Set(variants.map(\.value)) == ["grid", "list"])
         } else {
@@ -80,6 +81,62 @@ struct LoaderTests {
         } else {
             Issue.record("expected condition rule")
         }
+    }
+
+    @Test func decodesIfCombinedWithRollout() throws {
+        let json = """
+        {
+          "flags": {
+            "x": {
+              "type": "bool",
+              "default": false,
+              "rules": [
+                { "if": { "country": { "in": ["US", "CA"] } }, "rollout": 25, "value": true }
+              ]
+            }
+          }
+        }
+        """
+        let doc = try JSONDecoder().decode(FlagDocument.self, from: Data(json.utf8))
+        let flag = try #require(doc.flags["x"])
+        guard case .rollout(let conditions, let percentage, let value) = flag.rules[0] else {
+            Issue.record("expected rollout rule, got \(flag.rules[0])")
+            return
+        }
+        #expect(percentage == 25)
+        #expect(value == .bool(true))
+        #expect(conditions.count == 1)
+        #expect(conditions[0].attribute == "country")
+        if case .in(let values) = conditions[0].operator {
+            #expect(values == [.string("US"), .string("CA")])
+        } else {
+            Issue.record("expected .in operator")
+        }
+    }
+
+    @Test func decodesIfCombinedWithSplit() throws {
+        let json = """
+        {
+          "flags": {
+            "x": {
+              "type": "string",
+              "default": "grid",
+              "rules": [
+                { "if": { "plan": "pro" }, "split": { "a": 50, "b": 50 } }
+              ]
+            }
+          }
+        }
+        """
+        let doc = try JSONDecoder().decode(FlagDocument.self, from: Data(json.utf8))
+        let flag = try #require(doc.flags["x"])
+        guard case .split(let conditions, let variants) = flag.rules[0] else {
+            Issue.record("expected split rule, got \(flag.rules[0])")
+            return
+        }
+        #expect(conditions.count == 1)
+        #expect(conditions[0].attribute == "plan")
+        #expect(variants.count == 2)
     }
 
     @Test func rejectsRolloutOutOfRange() {

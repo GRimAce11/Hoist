@@ -7,7 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-(Nothing yet — next changes will land here.)
+### Added
+
+- **Gated `rollout` and `split` rules.** A rule may now combine `if` with
+  `rollout` or `split` in a single object — conditions are evaluated first
+  (AND), and only matching users are bucketed:
+  ```json
+  { "if": { "country": { "in": ["US","CA"] } }, "rollout": 25, "value": true }
+  { "if": { "plan": "pro" }, "split": { "a": 50, "b": 50 } }
+  ```
+  Previously the same effect required either two separate rules (which
+  unintentionally rolled out to non-matching users via the catch-all) or
+  call-site filtering of the `UserContext`.
+
+  The bucketing key is unchanged (`"<flagKey>:<userID>"`); gating attributes
+  do not enter the hash, so widening a gated rollout only adds users — it
+  never reshuffles existing ones.
+
+### Changed
+
+- **Source-breaking**: `Rule.rollout` and `Rule.split` now carry a
+  `conditions: [Condition]` associated value. Convenience static factories
+  (`Rule.rollout(percentage:value:)`, `Rule.split(variants:)`) preserve the
+  un-gated construction sites. Pattern matchers on
+  `case .rollout(let p, let v)` must become `case .rollout(_, let p, let v)`
+  (or destructure the new `conditions` slot). Acceptable in 0.x.
+
+### Tests
+
+- 7 new tests covering gated rollout match, gate-fail fall-through,
+  no-userID skip while gate matches, ~25% distribution within a US-gated
+  subset (with non-US users verified to never hit), gated split, and two
+  decoder round-trips for `if`+`rollout` and `if`+`split`. 84/84 total
+  tests passing.
 
 ## [0.4.0] — 2026-05-11
 

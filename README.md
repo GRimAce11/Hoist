@@ -190,6 +190,16 @@ A flag has a `default` and an ordered list of `rules`. The evaluator walks rules
 
 Operators inside `if`: `eq`, `neq`, `in`, `notIn`, `gt`, `gte`, `lt`, `lte`, `contains`, `startsWith`, `endsWith`. A bare value (`{ "country": "US" }`) is sugar for `eq`.
 
+`if` can also gate a `rollout` or `split` in the same rule — conditions are evaluated first, and only matching users are bucketed:
+
+```json
+"rules": [
+  { "if": { "country": { "in": ["US", "CA"] } }, "rollout": 25, "value": true }
+]
+```
+
+Here 25% of US/CA users get `true`; everyone else falls through to the next rule (or the default). The bucketing key is still `"<flagKey>:<userID>"` — gating attributes are not mixed in, so widening a rollout from 25 → 50% only adds users, never reshuffles them.
+
 ### Deterministic rollouts
 
 Bucketing uses `SHA-256("<flagKey>:<userID>")` reduced modulo 100. The same user always lands in the same bucket for the same flag, so a user never flickers between variants on relaunch.
